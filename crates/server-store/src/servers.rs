@@ -32,20 +32,20 @@ where
     r.map_err(|e| StoreError::Db(sqlx::Error::Decode(Box::new(e))))
 }
 
-struct Row {
-    id: Uuid,
-    name: String,
-    country: String,
-    city: String,
-    endpoint: String,
-    public_key: String,
-    tags: Vec<String>,
-    active: bool,
+pub(crate) struct ServerRow {
+    pub(crate) id: Uuid,
+    pub(crate) name: String,
+    pub(crate) country: String,
+    pub(crate) city: String,
+    pub(crate) endpoint: String,
+    pub(crate) public_key: String,
+    pub(crate) tags: Vec<String>,
+    pub(crate) active: bool,
 }
 
-impl TryFrom<Row> for Server {
+impl TryFrom<ServerRow> for Server {
     type Error = StoreError;
-    fn try_from(r: Row) -> Result<Self, StoreError> {
+    fn try_from(r: ServerRow) -> Result<Self, StoreError> {
         Ok(Server {
             id: r.id,
             name: r.name,
@@ -62,7 +62,7 @@ impl TryFrom<Row> for Server {
 impl Store {
     pub async fn add_server(&self, s: NewServer) -> Result<Server, StoreError> {
         let row = sqlx::query_as!(
-            Row,
+            ServerRow,
             "INSERT INTO servers (id, name, country, city, endpoint, public_key, tags, node_token_hash)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              RETURNING id, name, country, city, endpoint, public_key, tags, active",
@@ -82,7 +82,7 @@ impl Store {
 
     pub async fn active_servers(&self) -> Result<Vec<Server>, StoreError> {
         sqlx::query_as!(
-            Row,
+            ServerRow,
             "SELECT id, name, country, city, endpoint, public_key, tags, active
              FROM servers WHERE active ORDER BY name"
         )
@@ -95,7 +95,7 @@ impl Store {
 
     pub async fn all_servers(&self) -> Result<Vec<Server>, StoreError> {
         sqlx::query_as!(
-            Row,
+            ServerRow,
             "SELECT id, name, country, city, endpoint, public_key, tags, active
              FROM servers ORDER BY name"
         )

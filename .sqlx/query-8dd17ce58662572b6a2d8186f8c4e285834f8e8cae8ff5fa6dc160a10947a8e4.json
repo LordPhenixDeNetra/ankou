@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT public_key, ipv4 FROM devices WHERE revoked_at IS NULL ORDER BY ipv4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "public_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "ipv4",
+        "type_info": "Inet"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8dd17ce58662572b6a2d8186f8c4e285834f8e8cae8ff5fa6dc160a10947a8e4"
+}

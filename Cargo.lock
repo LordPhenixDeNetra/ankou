@@ -146,6 +146,8 @@ dependencies = [
  "ankou-proto",
  "ankou-server-domain",
  "ipnet",
+ "serde",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.21",
  "time",

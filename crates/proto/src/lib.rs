@@ -12,6 +12,7 @@ pub mod api;
 mod config;
 mod error;
 mod keys;
+pub mod node;
 
 pub use config::{Endpoint, EndpointError, InterfaceSection, PeerSection, ServerId, TunnelConfig};
 pub use error::ErrorCode;

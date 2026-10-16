@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE devices SET last_handshake = GREATEST(last_handshake, $2)\n                     WHERE public_key = $1 AND revoked_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38bc0a1571885bf6b5be0bb8c9efe1add50bb0bddf725fb257b5c0965559baf3"
+}
