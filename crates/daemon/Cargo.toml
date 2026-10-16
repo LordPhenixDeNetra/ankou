@@ -1,0 +1,27 @@
+[package]
+name = "ankou-daemon"
+description = "Service d'aNkou : exécute la machine à états, tient le tunnel et sert l'IPC."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ankou-core.workspace = true
+ankou-ipc.workspace = true
+ankou-platform.workspace = true
+ankou-proto.workspace = true
+lpdnsoft-atomic.workspace = true
+lpdnsoft-settings.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing = "0.1"
+
+[dev-dependencies]
+ankou-platform = { workspace = true, features = ["fake"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

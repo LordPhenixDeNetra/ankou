@@ -1,5 +1,7 @@
 # Runbook — Étape 1 : tunnel manuel vers un VPS
 
+> **Depuis l'étape 3a**, `ankou-cli connect` ne tient plus le tunnel lui-même : il pilote le service `ankoud`, à installer d'abord (`docs/runbooks/etape-3a-service.md`, §1). Les commandes `sudo ./target/release/ankou-cli connect --config …` ci-dessous deviennent `ankou-cli connect --config …` (sans sudo) et la déconnexion se fait par `ankou-cli disconnect` au lieu de Ctrl+C.
+
 But : prouver qu'`ankou-cli` fait passer tout le trafic d'un poste Linux par un VPS Hostinger (Ubuntu 24.04). À cette étape, le serveur est configuré **à la main** avec `wg-quick` ; `ankou-node` et l'API arrivent à l'étape 2.
 
 Valeurs utilisées : réseau du tunnel `10.8.0.0/24`, serveur `10.8.0.1`, client `10.8.0.2`, port UDP `51820`.

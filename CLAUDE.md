@@ -13,21 +13,25 @@ LPDNSoft/
 └── ankou/          dépend de ../lpdnsoft-libs/crates/<nom>
 ```
 
-## Structure (étapes 1 et 2)
+## Structure (étapes 1 à 3a)
 
 - `crates/proto` — `ankou-proto` : constantes, `TunnelConfig` (fichier TOML du client), clés WireGuard (`PrivateKey` jamais affichée), `ErrorCode` stables.
 - `crates/core` — `ankou-core` : machine à états de connexion (spec §6.4), **aucune E/S** ; backoff 1 s → 30 s ; invariant kill switch testé par `proptest`.
-- `crates/platform` — `ankou-platform` : trait `Tunnel`, implémentation Linux noyau (configuration par `defguard_wireguard_rs`, routage par `ip` comme `wg-quick`, ADR 0002), `FakeTunnel` (feature `fake`).
+- `crates/platform` — `ankou-platform` : trait `Tunnel` (+ `Send`), implémentation Linux noyau (configuration par `defguard_wireguard_rs`, routage par `ip` comme `wg-quick`, ADR 0002), trait `SystemWatch` (route par défaut, horloge murale) ; `FakeTunnel` et `FakeWatch` pilotables (feature `fake`).
+- `crates/ipc` — `ankou-ipc` : socket local (`interprocess`), trames `u32` + JSON (1 Mio max), poignée de main ; messages dans `ankou_proto::ipc`.
+- `crates/daemon` — `ankou-daemon` : acteur qui exécute la machine à états sur le tunnel, surveillance toutes les 5 s (handshake, réseau, veille), profil et réglages dans le dossier d'état, sessions IPC (ADR 0005).
 - `crates/server-domain` — `ankou-server-domain` : règles pures du serveur (e-mail, mot de passe ≥ 12 caractères, invitations, limite d'appareils, attribution d'adresses dans `10.8.0.0/16`, `hash_secret`). Aucune E/S.
 - `crates/server-store` — `ankou-server-store` : **seule** couche qui écrit du SQL (PostgreSQL, sqlx, migrations dans `migrations/`, `MIGRATOR`). Un déclencheur publie chaque ajout/révocation d'appareil sur le canal `ankou_peers` (`PeerChange`).
 - `crates/node` — `ankou-node-core` : réconciliation des pairs (`reconcile`), cache `peers.json`, trait `PeerBackend` (`WgBackend` Linux, `FakeBackend` feature `fake`), boucle WebSocket `run` avec backoff.
 - `crates/api-client` — `ankou-api-client` : `ApiClient` (https exigé hors machine locale, rafraîchissement du jeton sur 401), `Session` (`ANKOU_SESSION_FILE` ou `<config>/ankou/session.toml`, 0600).
 - `apps/ankou-api` — API REST `/v1` (axum) : bibliothèque `router()` + `main` (`serve`, `genkey`). Auth : ADR 0003. OpenAPI : `GET /v1/openapi.json`. Nodes : `GET /v1/nodes/ws` (jeton du node en `Bearer`), messages `ankou_proto::node` (`Hello` → `Welcome`, `FullSync`, `PeerAdded`, `PeerRemoved`, `Stats`), diffusion par `PeerHub` (ADR 0004).
+- `apps/ankoud` — service système du poste (root) : `--socket` (défaut `/run/ankou/ankoud.sock`), `--state-dir` (défaut `/var/lib/ankou`) ; unité `packaging/linux/ankoud.service`.
 - `apps/ankou-node` — service des VPS : `--config /etc/ankou/node.toml`, ne gère que les pairs de `wg0` (Linux).
 - `apps/ankou-admin` — invitations, serveurs (jeton de node), utilisateurs, appareils ; agit directement sur la base.
-- `apps/ankou-cli` — `version`, `init --out <fichier>`, `connect --config <fichier> [--retries n]`, `register`, `login`, `servers`, `enroll --name --out [--server]` (`src/account.rs`), option globale `--lang en|fr`. `src/run.rs` exécute les actions du cœur (provisoire : déménage dans `ankou-daemon` à l'étape 3).
+- `apps/ankou-cli` — `version`, `init --out <fichier>`, `register`, `login`, `servers`, `enroll --name --out [--server]` (`src/account.rs`) ; `connect [--config <fichier>] [--wait s]`, `disconnect`, `status`, `autoconnect on|off` par l'IPC d'`ankoud` (`src/daemon.rs`, socket surchargeable par `ANKOU_SOCKET`) ; option globale `--lang en|fr`.
 - `locales/{en,fr}/ankou.ftl` — traductions Fluent, embarquées à la compilation.
-- `deploy/` — Caddyfile, unités systemd, exemples `api.toml` / `node.toml`.
+- `deploy/` — Caddyfile, unités systemd, exemples `api.toml` / `node.toml` (serveurs).
+- `packaging/linux/` — unité systemd d'`ankoud` (poste client).
 - `xtask` — contrôles.
 
 ## Commande unique
@@ -41,10 +45,11 @@ Prérequis : Rust stable ≥ 1.91, `cargo install cargo-deny --locked`.
 Bout en bout Linux (root, `ip`, `wg`, module `wireguard` ; aussi lancé par le job CI `e2e-linux`) :
 
 ```sh
-sudo -E env "PATH=$PATH" cargo test -p ankou-cli --test e2e_linux -- --ignored --test-threads=1
+cargo build -p ankou-cli -p ankoud
+sudo -E env "PATH=$PATH" cargo test -p ankoud --test e2e_linux -- --ignored --test-threads=1
 ```
 
-Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md` ; déploiement des 2 VPS (API, nodes, enrôlement) : `docs/runbooks/etape-2-deploiement.md`.
+Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md` ; déploiement des 2 VPS (API, nodes, enrôlement) : `docs/runbooks/etape-2-deploiement.md` ; service `ankoud` sur le poste : `docs/runbooks/etape-3a-service.md`.
 
 ## Base de données (serveur)
 

@@ -57,10 +57,12 @@ jobs:
           sudo modprobe wireguard
       - name: Compilation des tests
         working-directory: ankou
-        run: cargo test -p ankou-cli --test e2e_linux --no-run
+        run: |
+          cargo build -p ankou-cli -p ankoud
+          cargo test -p ankoud --test e2e_linux --no-run
       - name: Tests de bout en bout
         working-directory: ankou
-        run: sudo -E env "PATH=$PATH" cargo test -p ankou-cli --test e2e_linux -- --ignored --test-threads=1
+        run: sudo -E env "PATH=$PATH" cargo test -p ankoud --test e2e_linux -- --ignored --test-threads=1
       - name: Rendre target/ au runner (cache)
         if: always()
         run: sudo chown -R "$(id -u):$(id -g)" ankou/target

@@ -1,13 +1,14 @@
 mod account;
+mod daemon;
 mod messages;
-mod run;
 
 use ankou_proto::{APP_ID, APP_NAME, PROTOCOL_VERSION, PrivateKey, TunnelConfig, VERSION};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use lpdnsoft_i18n::{LanguageIdentifier, Localizer, Resource, langid, system_locales, t};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "ankou-cli", about = "aNkou VPN command-line client")]
@@ -17,6 +18,12 @@ struct Cli {
     lang: Option<String>,
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Toggle {
+    On,
+    Off,
 }
 
 #[derive(Subcommand)]
@@ -29,14 +36,23 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
-    /// Open the tunnel described by a configuration file (Linux, root)
+    /// Ask the ankoud service to connect (saved configuration if --config is omitted)
     Connect {
-        /// Client configuration file (TOML)
+        /// Client configuration file (TOML), saved by the service
         #[arg(long)]
-        config: PathBuf,
-        /// Number of new attempts after a failure
-        #[arg(long, default_value_t = 5)]
-        retries: u32,
+        config: Option<PathBuf>,
+        /// Seconds to wait for the connection before returning
+        #[arg(long, default_value_t = 30)]
+        wait: u64,
+    },
+    /// Ask the ankoud service to disconnect
+    Disconnect,
+    /// Show the connection state
+    Status,
+    /// Connect automatically when the service starts (at boot)
+    Autoconnect {
+        #[arg(value_enum)]
+        state: Toggle,
     },
     /// Create an account with an invitation code (password asked twice)
     Register {
@@ -116,7 +132,12 @@ fn main() -> anyhow::Result<ExitCode> {
             ExitCode::SUCCESS
         }
         Command::Init { out } => init(&loc, &out)?,
-        Command::Connect { config, retries } => connect(&loc, &config, retries)?,
+        Command::Connect { config, wait } => connect(&loc, config.as_deref(), wait)?,
+        Command::Disconnect => daemon::run(daemon::disconnect(&loc))?,
+        Command::Status => daemon::run(daemon::status(&loc))?,
+        Command::Autoconnect { state } => {
+            daemon::run(daemon::autoconnect(&loc, matches!(state, Toggle::On)))?
+        }
         Command::Register {
             api,
             invitation,
@@ -172,7 +193,12 @@ fn init(loc: &Localizer, out: &Path) -> anyhow::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn connect(loc: &Localizer, config: &Path, retries: u32) -> anyhow::Result<ExitCode> {
+/// Lit et valide le fichier ici (messages précis, code 2), puis délègue au service.
+fn connect(loc: &Localizer, config: Option<&Path>, wait: u64) -> anyhow::Result<ExitCode> {
+    let wait = Duration::from_secs(wait);
+    let Some(config) = config else {
+        return daemon::run(daemon::connect(loc, None, wait));
+    };
     let path = config.display().to_string();
     let parsed = std::fs::read_to_string(config)
         .map_err(|e| e.to_string())
@@ -202,13 +228,5 @@ fn connect(loc: &Localizer, config: &Path, retries: u32) -> anyhow::Result<ExitC
             );
         }
     }
-    let (tx, rx) = std::sync::mpsc::channel();
-    ctrlc::set_handler(move || {
-        let _ = tx.send(());
-    })?;
-    let mut tunnel = ankou_platform::default_tunnel();
-    Ok(match run::run(loc, &cfg, tunnel.as_mut(), retries, rx) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(_) => ExitCode::FAILURE,
-    })
+    daemon::run(daemon::connect(loc, Some(cfg), wait))
 }

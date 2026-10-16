@@ -1,5 +1,7 @@
 # Runbook — Étape 2 : API, nodes et enrôlement sur 2 VPS
 
+> **Depuis l'étape 3a**, `ankou-cli connect` ne tient plus le tunnel lui-même : il pilote le service `ankoud`, à installer d'abord (`docs/runbooks/etape-3a-service.md`, §1). Les commandes `sudo ./target/release/ankou-cli connect --config …` ci-dessous deviennent `ankou-cli connect --config …` (sans sudo) et la déconnexion se fait par `ankou-cli disconnect` au lieu de Ctrl+C.
+
 But : un utilisateur invité crée son compte, enregistre son poste et se connecte **sans aucune action manuelle sur les serveurs**. Les pairs WireGuard sont posés et retirés par `ankou-node`, d'après l'API.
 
 Répartition (Ubuntu 24.04 sur les deux) :

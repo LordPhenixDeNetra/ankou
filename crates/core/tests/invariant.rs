@@ -17,6 +17,9 @@ fn event() -> impl Strategy<Value = Event> {
         Just(Event::Resume),
         Just(Event::NetworkChanged),
         Just(Event::RetryDue),
+        Just(Event::Fatal {
+            code: ErrorCode::TunnelPermission,
+        }),
     ]
 }
 

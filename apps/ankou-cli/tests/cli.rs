@@ -108,6 +108,13 @@ fn invalid_config_is_reported() {
     assert!(stderr(&a).contains("Configuration invalide"));
 }
 
+/// `ankou-cli` avec un socket inexistant : aucun service ne répond.
+fn cli_without_daemon(dir: &Path) -> Command {
+    let mut c = cli();
+    c.env("ANKOU_SOCKET", dir.join("absent.sock"));
+    c
+}
+
 #[cfg(unix)]
 #[test]
 fn world_readable_config_warns() {
@@ -115,52 +122,42 @@ fn world_readable_config_warns() {
     let dir = tempfile::tempdir().unwrap();
     let path = write_config(dir.path(), VALID);
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let a = cli()
-        .args(["connect", "--lang", "en", "--retries", "0", "--config"])
+    let a = cli_without_daemon(dir.path())
+        .args(["connect", "--lang", "en", "--config"])
         .arg(&path)
         .assert()
         .failure();
     assert!(stderr(&a).contains("chmod 600"), "{}", stderr(&a));
 }
 
-#[cfg(target_os = "linux")]
-fn is_root() -> bool {
-    std::fs::read_to_string("/proc/self/status")
-        .unwrap()
-        .lines()
-        .find(|l| l.starts_with("Uid:"))
-        .and_then(|l| l.split_whitespace().nth(1).map(|u| u == "0"))
-        .unwrap_or(false)
+/// Message propre à Linux (systemd) ; le service Windows arrive à l'étape 5.
+#[cfg(unix)]
+#[test]
+fn connect_without_daemon_says_start_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_config(dir.path(), VALID);
+    let a = cli_without_daemon(dir.path())
+        .args(["connect", "--lang", "en", "--config"])
+        .arg(&path)
+        .assert()
+        .code(1);
+    assert!(
+        stderr(&a).contains("systemctl enable --now ankoud"),
+        "{}",
+        stderr(&a)
+    );
 }
 
-#[cfg(target_os = "linux")]
 #[test]
-fn connect_without_root_says_sudo() {
-    if is_root() {
-        eprintln!("ignoré : lancé en root");
-        return;
+fn status_without_daemon_exits_1() {
+    let dir = tempfile::tempdir().unwrap();
+    for args in [["status"], ["disconnect"]] {
+        cli_without_daemon(dir.path())
+            .args(args)
+            .args(["--lang", "en"])
+            .assert()
+            .code(1);
     }
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_config(dir.path(), VALID);
-    let a = cli()
-        .args(["connect", "--lang", "en", "--config"])
-        .arg(&path)
-        .assert()
-        .code(1);
-    assert!(stderr(&a).contains("sudo"), "{}", stderr(&a));
-}
-
-#[cfg(not(target_os = "linux"))]
-#[test]
-fn connect_is_unavailable_off_linux() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_config(dir.path(), VALID);
-    let a = cli()
-        .args(["connect", "--lang", "en", "--config"])
-        .arg(&path)
-        .assert()
-        .code(1);
-    assert!(stderr(&a).contains("WireGuard"), "{}", stderr(&a));
 }
 
 #[test]
