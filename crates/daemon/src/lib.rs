@@ -6,7 +6,9 @@ mod session;
 mod store;
 
 use ankou_ipc::{IpcError, IpcListener};
-use ankou_platform::{SystemWatch, Tunnel};
+use ankou_platform::{Dns, Firewall, PlatformError, SystemWatch, Tunnel};
+use ankou_proto::Endpoint;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
@@ -28,6 +30,18 @@ impl DaemonConfig {
     }
 }
 
+/// Résolution d'un endpoint en adresse (`ankou_platform::resolve_endpoint` en vrai).
+pub type Resolver = Box<dyn Fn(&Endpoint) -> Result<SocketAddr, PlatformError> + Send>;
+
+/// Accès système du service, réels (`ankoud`) ou factices (tests).
+pub struct System {
+    pub tunnel: Box<dyn Tunnel + Send>,
+    pub firewall: Box<dyn Firewall>,
+    pub dns: Box<dyn Dns>,
+    pub watch: Box<dyn SystemWatch>,
+    pub resolve: Resolver,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DaemonError {
     #[error("{0}")]
@@ -40,18 +54,12 @@ pub enum DaemonError {
 /// jusqu'à `stop`, puis retire le tunnel. Erreur seulement si le socket ne s'ouvre pas.
 pub async fn run(
     config: DaemonConfig,
-    tunnel: Box<dyn Tunnel + Send>,
-    watch: Box<dyn SystemWatch>,
+    system: System,
     stop: watch::Receiver<bool>,
 ) -> Result<(), DaemonError> {
     let listener = IpcListener::bind(&config.socket).await?;
     let (commands, rx) = mpsc::channel(64);
-    let actor = actor::Actor::new(
-        store::Store::new(config.state_dir),
-        tunnel,
-        watch,
-        config.tick,
-    );
+    let actor = actor::Actor::new(store::Store::new(config.state_dir), system, config.tick);
     let mut actor = tokio::spawn(actor.run(rx, stop.clone()));
     tracing::info!(socket = %config.socket.display(), "service démarré");
     // L'acteur s'arrête de lui-même sur `stop` (après avoir retiré le tunnel).

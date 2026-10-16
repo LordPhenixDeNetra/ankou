@@ -18,6 +18,9 @@ pub struct InterfaceSection {
     pub private_key: PrivateKey,
     #[serde(deserialize_with = "non_empty")]
     pub address: Vec<IpNet>,
+    /// Résolveurs joints par le tunnel ; vide : `DEFAULT_DNS`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dns: Vec<std::net::IpAddr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,6 +33,12 @@ pub struct PeerSection {
     #[serde(default = "default_keepalive")]
     pub persistent_keepalive: u16,
 }
+
+/// Résolveurs utilisés quand la configuration n'en donne pas (Quad9, joint par le tunnel).
+pub const DEFAULT_DNS: [std::net::IpAddr; 2] = [
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(9, 9, 9, 9)),
+    std::net::IpAddr::V4(std::net::Ipv4Addr::new(149, 112, 112, 112)),
+];
 
 /// Keepalive par défaut, en secondes (comme les clients WireGuard officiels).
 pub const DEFAULT_KEEPALIVE: u16 = 25;

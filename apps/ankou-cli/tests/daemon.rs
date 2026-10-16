@@ -3,8 +3,8 @@
 #![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use ankou_daemon::{DaemonConfig, run};
-use ankou_platform::fake::{FakeTunnel, FakeWatch};
+use ankou_daemon::{DaemonConfig, System, run};
+use ankou_platform::fake::{FakeDns, FakeFirewall, FakeTunnel, FakeWatch};
 use assert_cmd::Command;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -31,13 +31,14 @@ impl Daemon {
         let (stop, stop_rx) = tokio::sync::watch::channel(false);
         let thread = std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(run(
-                config,
-                Box::new(tunnel),
-                Box::new(FakeWatch::default()),
-                stop_rx,
-            ))
-            .unwrap();
+            let system = System {
+                tunnel: Box::new(tunnel),
+                firewall: Box::new(FakeFirewall::default()),
+                dns: Box::new(FakeDns::default()),
+                watch: Box::new(FakeWatch::default()),
+                resolve: Box::new(ankou_platform::resolve_endpoint),
+            };
+            rt.block_on(run(config, system, stop_rx)).unwrap();
         });
         for _ in 0..200 {
             if socket.exists() {
@@ -131,4 +132,20 @@ fn cli_connect_gives_up_waiting() {
         .assert()
         .code(1);
     assert!(out(&a).1.contains("Still trying"), "{:?}", out(&a));
+}
+
+#[test]
+fn cli_killswitch_toggle_and_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default());
+    let a = d.cli().arg("status").assert().code(0);
+    assert!(out(&a).0.contains("Kill switch: on"), "{:?}", out(&a));
+    d.cli().args(["killswitch", "off"]).assert().code(0);
+    let settings = std::fs::read_to_string(dir.path().join("state/settings.toml")).unwrap();
+    assert!(settings.contains("kill_switch = false"), "{settings}");
+    let a = d.cli().arg("status").assert().code(0);
+    assert!(out(&a).0.contains("Kill switch: off"), "{:?}", out(&a));
+    d.cli().args(["killswitch", "on"]).assert().code(0);
+    let a = d.cli().arg("status").assert().code(0);
+    assert!(out(&a).0.contains("Kill switch: on"), "{:?}", out(&a));
 }

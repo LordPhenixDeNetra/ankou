@@ -72,6 +72,11 @@ impl Machine {
         }
     }
 
+    /// Vaut pour les transitions suivantes ; l'état courant ne change pas.
+    pub fn set_settings(&mut self, settings: CoreSettings) {
+        self.settings = settings;
+    }
+
     pub fn state(&self) -> &State {
         &self.state
     }

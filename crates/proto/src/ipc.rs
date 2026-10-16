@@ -63,9 +63,25 @@ pub enum Status {
     },
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DaemonSettings {
     /// Se connecter au profil enregistré au démarrage du service.
     #[serde(default)]
     pub auto_connect: bool,
+    /// Rien ne sort hors du tunnel tant que le service n'est pas déconnecté (activé par défaut).
+    #[serde(default = "enabled")]
+    pub kill_switch: bool,
+}
+
+fn enabled() -> bool {
+    true
+}
+
+impl Default for DaemonSettings {
+    fn default() -> Self {
+        Self {
+            auto_connect: false,
+            kill_switch: true,
+        }
+    }
 }

@@ -210,6 +210,7 @@ async fn register_device(
         interface: InterfaceSection {
             private_key: key,
             address: enrolled.address,
+            dns: Vec::new(),
         },
         peer: PeerSection {
             public_key: chosen.public_key,

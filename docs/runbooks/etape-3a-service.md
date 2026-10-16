@@ -1,5 +1,7 @@
 # Runbook — Étape 3a : service `ankoud` sur le poste Linux
 
+> **Suite :** kill switch, protection DNS et IPv6 : `docs/runbooks/etape-3b-protection.md` (à faire après cette étape).
+
 But : le tunnel est tenu par le service système `ankoud`, qui se reconnecte seul (coupure, veille, changement de réseau) et, si on le demande, au démarrage de la machine. `ankou-cli` le pilote **sans sudo**.
 
 Prérequis : l'étape 2 est déployée et `~/ankou.toml` a été écrit par `ankou-cli enroll` (sinon : `docs/runbooks/etape-2-deploiement.md`, §7).
@@ -53,6 +55,6 @@ Garder `journalctl -u ankoud -f` ouvert dans un terminal.
 
 ## 5. Limites connues de cette étape
 
-- Pas encore de kill switch ni de protection DNS/IPv6 : pendant une reconnexion, et toujours pour l'IPv6 et un DNS local, le trafic peut sortir hors du tunnel. Corrigé à l'étape 3b.
+- Kill switch et protection DNS/IPv6 : étape 3b (`etape-3b-protection.md`).
 - Un lien mort **sans** changement de réseau visible (par exemple le VPS qui redémarre) est détecté en 3 min au plus (âge du dernier handshake).
 - Tout membre du groupe `ankou` peut piloter le VPN de la machine (ADR 0005).

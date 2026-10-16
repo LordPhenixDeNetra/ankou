@@ -2,8 +2,8 @@
 
 use crate::messages::error_message;
 use ankou_ipc::{Connection, IpcError, default_socket};
-use ankou_proto::TunnelConfig;
-use ankou_proto::ipc::{ClientToDaemon, DaemonToClient, Status};
+use ankou_proto::ipc::{ClientToDaemon, DaemonSettings, DaemonToClient, Status};
+use ankou_proto::{ErrorCode, TunnelConfig};
 use lpdnsoft_i18n::{Localizer, t};
 use std::io::ErrorKind;
 use std::path::PathBuf;
@@ -119,7 +119,16 @@ fn status_line(loc: &Localizer, status: &Status) -> String {
         Status::Reconnecting { attempt, .. } => {
             t!(loc, "cli-status-reconnecting", attempt = *attempt)
         }
-        Status::Blocked { reason } => error_message(loc, *reason, "", ""),
+        // Pare-feu en place : expliquer comment retrouver l'accès direct. Sans pare-feu
+        // (nft absent), rien n'est bloqué : le message d'erreur suffit.
+        Status::Blocked {
+            reason: reason @ ErrorCode::FirewallUnavailable,
+        } => error_message(loc, *reason, "", ""),
+        Status::Blocked { reason } => format!(
+            "{}\n{}",
+            error_message(loc, *reason, "", ""),
+            t!(loc, "cli-blocked-hint")
+        ),
         Status::Error { code, detail } => error_message(loc, *code, "", detail),
     }
 }
@@ -189,44 +198,49 @@ pub async fn disconnect(loc: &Localizer) -> Outcome {
 }
 
 pub async fn status(loc: &Localizer) -> Outcome {
-    match ask(loc, ClientToDaemon::GetStatus).await? {
+    let line = match ask(loc, ClientToDaemon::GetStatus).await? {
         DaemonToClient::Status {
             status: Status::Connected { server, since },
         } => {
             let since = human_duration(now_secs().saturating_sub(since));
-            println!(
-                "{}",
-                t!(
-                    loc,
-                    "cli-status-connected-since",
-                    server = server.as_str(),
-                    since = since.as_str()
-                )
-            );
-            Ok(ExitCode::SUCCESS)
+            t!(
+                loc,
+                "cli-status-connected-since",
+                server = server.as_str(),
+                since = since.as_str()
+            )
         }
-        DaemonToClient::Status { status } => {
-            println!("{}", status_line(loc, &status));
-            Ok(ExitCode::SUCCESS)
-        }
+        DaemonToClient::Status { status } => status_line(loc, &status),
+        other => return Err(unexpected(loc, &other)),
+    };
+    println!("{line}");
+    let kill_switch = if settings(loc).await?.kill_switch {
+        t!(loc, "cli-killswitch-state-on")
+    } else {
+        t!(loc, "cli-killswitch-state-off")
+    };
+    println!("{kill_switch}");
+    Ok(ExitCode::SUCCESS)
+}
+
+async fn settings(loc: &Localizer) -> Result<DaemonSettings, Shown> {
+    match ask(loc, ClientToDaemon::GetSettings).await? {
+        DaemonToClient::Settings { settings } => Ok(settings),
         other => Err(unexpected(loc, &other)),
     }
 }
 
-pub async fn autoconnect(loc: &Localizer, on: bool) -> Outcome {
-    let mut settings = match ask(loc, ClientToDaemon::GetSettings).await? {
-        DaemonToClient::Settings { settings } => settings,
-        other => return Err(unexpected(loc, &other)),
-    };
-    settings.auto_connect = on;
+/// Lit les réglages, applique `change`, les renvoie au service puis affiche `done`.
+async fn update_settings(
+    loc: &Localizer,
+    change: impl FnOnce(&mut DaemonSettings),
+    done: String,
+) -> Outcome {
+    let mut settings = settings(loc).await?;
+    change(&mut settings);
     match ask(loc, ClientToDaemon::SetSettings { settings }).await? {
         DaemonToClient::Done => {
-            let line = if on {
-                t!(loc, "cli-autoconnect-on")
-            } else {
-                t!(loc, "cli-autoconnect-off")
-            };
-            println!("{line}");
+            println!("{done}");
             Ok(ExitCode::SUCCESS)
         }
         DaemonToClient::Failed { code, detail } => {
@@ -234,6 +248,24 @@ pub async fn autoconnect(loc: &Localizer, on: bool) -> Outcome {
         }
         other => Err(unexpected(loc, &other)),
     }
+}
+
+pub async fn autoconnect(loc: &Localizer, on: bool) -> Outcome {
+    let done = if on {
+        t!(loc, "cli-autoconnect-on")
+    } else {
+        t!(loc, "cli-autoconnect-off")
+    };
+    update_settings(loc, |s| s.auto_connect = on, done).await
+}
+
+pub async fn killswitch(loc: &Localizer, on: bool) -> Outcome {
+    let done = if on {
+        t!(loc, "cli-killswitch-on")
+    } else {
+        t!(loc, "cli-killswitch-off")
+    };
+    update_settings(loc, |s| s.kill_switch = on, done).await
 }
 
 #[cfg(test)]

@@ -2,10 +2,10 @@
 #![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use ankou_daemon::{DaemonConfig, run};
+use ankou_daemon::{DaemonConfig, System, run};
 use ankou_ipc::{Connection, connect};
-use ankou_platform::PlatformError;
-use ankou_platform::fake::{FakeTunnel, FakeWatch};
+use ankou_platform::fake::{FakeDns, FakeFirewall, FakeTunnel, FakeWatch};
+use ankou_platform::{FirewallPolicy, PlatformError};
 use ankou_proto::ipc::{ClientToDaemon, DaemonSettings, DaemonToClient, Status};
 use ankou_proto::{ErrorCode, TunnelConfig};
 use std::path::{Path, PathBuf};
@@ -38,20 +38,42 @@ struct Daemon {
     socket: PathBuf,
     tunnel: FakeTunnel,
     watch: FakeWatch,
+    firewall: FakeFirewall,
+    dns: FakeDns,
     stop: watch::Sender<bool>,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl Daemon {
     async fn start(state_dir: &Path, tunnel: FakeTunnel) -> Daemon {
+        Self::start_with(state_dir, tunnel, FakeFirewall::default()).await
+    }
+
+    async fn start_with(state_dir: &Path, tunnel: FakeTunnel, firewall: FakeFirewall) -> Daemon {
         let socket = state_dir.join("ankoud.sock");
         let watch = FakeWatch::default();
+        let dns = FakeDns::default();
         let mut cfg = DaemonConfig::new(socket.clone(), state_dir.to_owned());
         cfg.tick = Duration::from_millis(50);
         let (stop, stop_rx) = watch::channel(false);
-        let (t, w) = (tunnel.clone(), watch.clone());
+        // Comme en vrai : sous kill switch, tunnel retiré, le DNS ne répond plus.
+        let (fw, tn) = (firewall.clone(), tunnel.clone());
+        let resolve = move |ep: &ankou_proto::Endpoint| {
+            if fw.active().is_some_and(|p| p.kill_switch) && !tn.is_up() {
+                return Err(PlatformError::Endpoint(format!("{ep} : DNS bloqué")));
+            }
+            let ip = ep.host.parse().unwrap_or([127, 0, 0, 1].into());
+            Ok(std::net::SocketAddr::new(ip, ep.port))
+        };
+        let system = System {
+            tunnel: Box::new(tunnel.clone()),
+            firewall: Box::new(firewall.clone()),
+            dns: Box::new(dns.clone()),
+            watch: Box::new(watch.clone()),
+            resolve: Box::new(resolve),
+        };
         let task = tokio::spawn(async move {
-            run(cfg, Box::new(t), Box::new(w), stop_rx).await.unwrap();
+            run(cfg, system, stop_rx).await.unwrap();
         });
         for _ in 0..100 {
             if socket.exists() {
@@ -63,6 +85,8 @@ impl Daemon {
             socket,
             tunnel,
             watch,
+            firewall,
+            dns,
             stop,
             task,
         }
@@ -231,7 +255,10 @@ async fn auto_connect_at_start() {
     let dir = tempfile::tempdir().unwrap();
     let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
     let mut c = d.client().await;
-    let on = DaemonSettings { auto_connect: true };
+    let on = DaemonSettings {
+        auto_connect: true,
+        ..DaemonSettings::default()
+    };
     assert_eq!(
         ask(
             &mut c,
@@ -349,6 +376,8 @@ async fn permission_error_is_fatal() {
     let tunnel = FakeTunnel::default();
     tunnel.fail_up(Some(PlatformError::Permission));
     let d = Daemon::start(dir.path(), tunnel.clone()).await;
+    // Sans kill switch : Error ; avec, le cœur garde Blocked (voir firewall_failure_is_fatal_with_kill_switch).
+    set_kill_switch(&d, false).await;
     let mut w = d.watcher().await;
     let mut c = d.client().await;
     ask(
@@ -516,4 +545,279 @@ async fn vanished_interface_reconnects() {
     d.tunnel.fail_stats(false);
     wait_status(&mut w, connected).await;
     d.stop().await;
+}
+
+fn policy(kill_switch: bool) -> FirewallPolicy {
+    FirewallPolicy {
+        kill_switch,
+        interface: "ankou0".into(),
+        endpoints: vec!["127.0.0.1:51820".parse().unwrap()],
+    }
+}
+
+async fn set_kill_switch(d: &Daemon, on: bool) {
+    let mut c = d.client().await;
+    let settings = DaemonSettings {
+        kill_switch: on,
+        ..DaemonSettings::default()
+    };
+    assert_eq!(
+        ask(&mut c, ClientToDaemon::SetSettings { settings }).await,
+        DaemonToClient::Done
+    );
+}
+
+async fn connect_with(d: &Daemon, config: TunnelConfig) {
+    let mut c = d.client().await;
+    ask(
+        &mut c,
+        ClientToDaemon::Connect {
+            config: Some(config),
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn firewall_follows_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_with(&d, config()).await;
+    let seen = wait_status(&mut w, connected).await;
+    assert!(matches!(seen[0], Status::Connecting { .. }));
+    assert_eq!(d.firewall.active(), Some(policy(true)));
+    let mut c = d.client().await;
+    ask(&mut c, ClientToDaemon::Disconnect).await;
+    wait_status(&mut w, |s| *s == Status::Disconnected).await;
+    assert_eq!(d.firewall.active(), None);
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn kill_switch_off_still_blocks_ipv6() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    set_kill_switch(&d, false).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    assert_eq!(d.firewall.active(), Some(policy(false)));
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn firewall_kept_while_reconnecting() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    d.tunnel.age_handshake(Duration::from_secs(200));
+    wait_status(&mut w, |s| matches!(s, Status::Reconnecting { .. })).await;
+    assert_eq!(d.firewall.active(), Some(policy(true)));
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn firewall_failure_is_fatal_with_kill_switch() {
+    let dir = tempfile::tempdir().unwrap();
+    let firewall = FakeFirewall::default();
+    firewall.fail(true);
+    let d = Daemon::start_with(dir.path(), FakeTunnel::default(), firewall).await;
+    let mut w = d.watcher().await;
+    connect_with(&d, config()).await;
+    // Kill switch : le cœur garde l'état bloqué (invariant), avec la cause.
+    let seen = wait_status(&mut w, |s| matches!(s, Status::Blocked { .. })).await;
+    assert_eq!(
+        seen.last(),
+        Some(&Status::Blocked {
+            reason: ErrorCode::FirewallUnavailable
+        })
+    );
+    assert_eq!(ups(&d.tunnel), 0, "{:?}", d.tunnel.calls());
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn firewall_failure_tolerated_without_kill_switch() {
+    let dir = tempfile::tempdir().unwrap();
+    let firewall = FakeFirewall::default();
+    firewall.fail(true);
+    let d = Daemon::start_with(dir.path(), FakeTunnel::default(), firewall).await;
+    set_kill_switch(&d, false).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn kill_switch_toggle_applies_immediately() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    set_kill_switch(&d, false).await;
+    assert_eq!(d.firewall.active(), Some(policy(false)));
+    set_kill_switch(&d, true).await;
+    assert_eq!(d.firewall.active(), Some(policy(true)));
+    let mut c = d.client().await;
+    assert!(matches!(
+        ask(&mut c, ClientToDaemon::GetStatus).await,
+        DaemonToClient::Status {
+            status: Status::Connected { .. }
+        }
+    ));
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn dns_set_when_connected() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    assert_eq!(
+        d.dns.current(),
+        Some(("ankou0".into(), ankou_proto::DEFAULT_DNS.to_vec()))
+    );
+    let mut custom = config();
+    custom.interface.dns = vec!["1.1.1.1".parse().unwrap()];
+    connect_with(&d, custom).await;
+    wait_status(&mut w, connected).await;
+    assert_eq!(
+        d.dns.current(),
+        Some(("ankou0".into(), vec!["1.1.1.1".parse().unwrap()]))
+    );
+    let mut c = d.client().await;
+    ask(&mut c, ClientToDaemon::Disconnect).await;
+    wait_status(&mut w, |s| *s == Status::Disconnected).await;
+    assert_eq!(d.dns.current(), None);
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn dns_failure_is_not_fatal() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    d.dns.fail(true);
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn leftover_firewall_resumes_connection() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    d.stop().await;
+    // Arrêt brutal simulé : les règles sont restées.
+    let firewall = FakeFirewall::default();
+    firewall.set_leftover(policy(true));
+    let d = Daemon::start_with(dir.path(), FakeTunnel::default(), firewall).await;
+    let mut c = d.client().await;
+    tokio::time::timeout(WAIT, async {
+        loop {
+            if let DaemonToClient::Status {
+                status: Status::Connected { .. },
+            } = ask(&mut c, ClientToDaemon::GetStatus).await
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    ask(&mut c, ClientToDaemon::Disconnect).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(d.firewall.active(), None);
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn leftover_firewall_without_profile_is_cleared() {
+    let dir = tempfile::tempdir().unwrap();
+    let firewall = FakeFirewall::default();
+    firewall.set_leftover(policy(true));
+    let d = Daemon::start_with(dir.path(), FakeTunnel::default(), firewall).await;
+    let _w = d.watcher().await;
+    assert_eq!(d.firewall.active(), None);
+    d.stop().await;
+}
+
+fn with_endpoint(host: &str) -> TunnelConfig {
+    let mut c = config();
+    c.peer.endpoint = format!("{host}:51820").parse().unwrap();
+    c
+}
+
+/// Changer de serveur (nom jamais résolu) sous kill switch : résolu avant de couper l'ancien tunnel.
+#[tokio::test]
+async fn switching_server_by_name_under_kill_switch() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_with(&d, with_endpoint("a.test")).await;
+    wait_status(&mut w, connected).await;
+    connect_with(&d, with_endpoint("b.test")).await;
+    let seen = wait_status(
+        &mut w,
+        |s| matches!(s, Status::Connected { server, .. } if server == "b.test:51820"),
+    )
+    .await;
+    assert!(
+        !seen
+            .iter()
+            .any(|s| matches!(s, Status::Reconnecting { .. })),
+        "{seen:?}"
+    );
+    d.stop().await;
+}
+
+/// Arrêt du service (mise à jour, redémarrage) : la protection reste, la connexion reprend.
+#[tokio::test]
+async fn stop_keeps_protection_and_restart_resumes() {
+    let dir = tempfile::tempdir().unwrap();
+    let firewall = FakeFirewall::default();
+    let d = Daemon::start_with(dir.path(), FakeTunnel::default(), firewall.clone()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    d.stop().await;
+    assert_eq!(
+        firewall.active(),
+        Some(policy(true)),
+        "kill switch retiré par l'arrêt"
+    );
+    let d = Daemon::start_with(dir.path(), FakeTunnel::default(), firewall.clone()).await;
+    let mut c = d.client().await;
+    tokio::time::timeout(WAIT, async {
+        loop {
+            if let DaemonToClient::Status {
+                status: Status::Connected { .. },
+            } = ask(&mut c, ClientToDaemon::GetStatus).await
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    d.stop().await;
+}
+
+/// Arrêt sans connexion en cours : rien ne reste.
+#[tokio::test]
+async fn stop_while_disconnected_leaves_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let firewall = FakeFirewall::default();
+    let d = Daemon::start_with(dir.path(), FakeTunnel::default(), firewall.clone()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    let mut c = d.client().await;
+    ask(&mut c, ClientToDaemon::Disconnect).await;
+    wait_status(&mut w, |s| *s == Status::Disconnected).await;
+    d.stop().await;
+    assert_eq!(firewall.active(), None);
 }
