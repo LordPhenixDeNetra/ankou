@@ -25,11 +25,13 @@ ankou-proto = { path = "crates/proto", version = "0.1.0" }
 ankou-server-domain = { path = "crates/server-domain", version = "0.1.0" }
 ankou-server-store = { path = "crates/server-store", version = "0.1.0" }
 ankou-api = { path = "apps/ankou-api", version = "0.1.0" }
+ankou-api-client = { path = "crates/api-client", version = "0.1.0" }
 ankou-node-core = { path = "crates/node", version = "0.1.0" }
 ankou-node = { path = "apps/ankou-node", version = "0.1.0" }
 ankou-admin = { path = "apps/ankou-admin", version = "0.1.0" }
 # Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
 lpdnsoft-atomic = { path = "../lpdnsoft-libs/crates/atomic", version = "0.1.0" }
+lpdnsoft-settings = { path = "../lpdnsoft-libs/crates/settings", version = "0.1.0" }
 lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }
 lpdnsoft-log = { path = "../lpdnsoft-libs/crates/log", version = "0.1.0" }
 anyhow = "1"
@@ -48,6 +50,8 @@ ctrlc = { version = "3", features = ["termination"] }
 defguard_wireguard_rs = "0.12"
 ipnet = { version = "2", features = ["serde"] }
 proptest = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+rpassword = "7"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 thiserror = "2"

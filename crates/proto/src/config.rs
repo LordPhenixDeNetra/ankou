@@ -31,8 +31,11 @@ pub struct PeerSection {
     pub persistent_keepalive: u16,
 }
 
+/// Keepalive par défaut, en secondes (comme les clients WireGuard officiels).
+pub const DEFAULT_KEEPALIVE: u16 = 25;
+
 fn default_keepalive() -> u16 {
-    25
+    DEFAULT_KEEPALIVE
 }
 
 fn non_empty<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<IpNet>, D::Error> {

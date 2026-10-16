@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+ankou-api-client.workspace = true
 ankou-core.workspace = true
 ankou-platform.workspace = true
 ankou-proto.workspace = true
@@ -15,6 +16,9 @@ lpdnsoft-log.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 ctrlc.workspace = true
+ipnet.workspace = true
+rpassword.workspace = true
+tokio.workspace = true
 toml.workspace = true
 tracing = "0.1"
 
