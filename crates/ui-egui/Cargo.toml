@@ -1,0 +1,26 @@
+[package]
+name = "ankou-ui-egui"
+description = "Interface graphique d'aNkou (egui) : écrans, pont vers ankoud et l'API, icône de notification."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ankou-api-client.workspace = true
+ankou-ipc.workspace = true
+ankou-proto.workspace = true
+eframe.workspace = true
+lpdnsoft-i18n.workspace = true
+lpdnsoft-settings.workspace = true
+lpdnsoft-ui.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing = "0.1"
+
+[dev-dependencies]
+egui_kittest.workspace = true
+
+[lints]
+workspace = true

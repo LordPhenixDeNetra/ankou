@@ -29,6 +29,7 @@ ankou-api-client = { path = "crates/api-client", version = "0.1.0" }
 ankou-node-core = { path = "crates/node", version = "0.1.0" }
 ankou-ipc = { path = "crates/ipc", version = "0.1.0" }
 ankou-daemon = { path = "crates/daemon", version = "0.1.0" }
+ankou-ui-egui = { path = "crates/ui-egui", version = "0.1.0" }
 ankou-node = { path = "apps/ankou-node", version = "0.1.0" }
 ankou-admin = { path = "apps/ankou-admin", version = "0.1.0" }
 # Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
@@ -36,7 +37,13 @@ lpdnsoft-atomic = { path = "../lpdnsoft-libs/crates/atomic", version = "0.1.0" }
 lpdnsoft-settings = { path = "../lpdnsoft-libs/crates/settings", version = "0.1.0" }
 lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }
 lpdnsoft-log = { path = "../lpdnsoft-libs/crates/log", version = "0.1.0" }
+lpdnsoft-ui = { path = "../lpdnsoft-libs/crates/ui", version = "0.1.0" }
 anyhow = "1"
+# Interface (étape 4) : rendu glow, plus léger que wgpu (démarrage, mémoire, taille).
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+egui_kittest = "0.36"
+# Icône de notification Linux (StatusNotifierItem par D-Bus, sans GTK ; ADR 0008).
+ksni = { version = "0.3", default-features = false, features = ["tokio"] }
 argon2 = "0.6"
 axum = { version = "0.8", features = ["macros", "ws"] }
 futures-util = "0.3"

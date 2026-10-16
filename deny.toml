@@ -21,6 +21,10 @@ allow = [
     "Zlib",
     # Zero-Clause BSD : plus permissive que MIT (dépendances d'interprocess).
     "0BSD",
+    # Boost : permissive (clipboard-win, error-code, via egui sous Windows).
+    "BSL-1.0",
+    # Domaine public (ksni, icône de notification).
+    "Unlicense",
 ]
 
 [bans]
@@ -46,3 +50,9 @@ allow = ["CDLA-Permissive-2.0"]
 [[licenses.exceptions]]
 crate = "webpki-root-certs"
 allow = ["CDLA-Permissive-2.0"]
+
+# epaint_default_fonts : polices embarquées par egui (OFL et licence des polices Ubuntu),
+# qui ne s'étendent pas au code qui les affiche.
+[[licenses.exceptions]]
+crate = "epaint_default_fonts"
+allow = ["OFL-1.1", "Ubuntu-font-1.0"]
