@@ -135,6 +135,7 @@ impl SystemWatch for FakeWatch {
 #[derive(Default)]
 struct FirewallState {
     active: Option<FirewallPolicy>,
+    history: Vec<FirewallPolicy>,
     fail: bool,
 }
 
@@ -144,6 +145,10 @@ pub struct FakeFirewall(Arc<Mutex<FirewallState>>);
 impl FakeFirewall {
     pub fn active(&self) -> Option<FirewallPolicy> {
         lock(&self.0).active.clone()
+    }
+    /// Toutes les politiques appliquées, dans l'ordre.
+    pub fn history(&self) -> Vec<FirewallPolicy> {
+        lock(&self.0).history.clone()
     }
     /// `true` : `apply` échoue, comme sans `nft`.
     pub fn fail(&self, on: bool) {
@@ -162,6 +167,7 @@ impl Firewall for FakeFirewall {
             return Err(PlatformError::Unavailable("nft introuvable".into()));
         }
         s.active = Some(policy.clone());
+        s.history.push(policy.clone());
         Ok(())
     }
     fn clear(&mut self) -> Result<(), PlatformError> {

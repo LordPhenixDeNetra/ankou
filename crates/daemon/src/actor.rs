@@ -7,8 +7,11 @@ use ankou_core::{Action, CoreSettings, Event, Machine, State};
 use ankou_platform::{
     Dns, Firewall, FirewallPolicy, INTERFACE, PlatformError, SystemWatch, Tunnel,
 };
-use ankou_proto::ipc::{DaemonSettings, DaemonToClient, Status};
-use ankou_proto::{DEFAULT_DNS, Endpoint, ErrorCode, TunnelConfig};
+use ankou_proto::ipc::{DaemonSettings, DaemonToClient, MAX_PROBED, ServerEntry, Status};
+use ankou_proto::{
+    DEFAULT_DNS, DEFAULT_KEEPALIVE, Endpoint, ErrorCode, InterfaceSection, PeerSection,
+    TunnelConfig,
+};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -21,12 +24,20 @@ const HANDSHAKE_POLL: Duration = Duration::from_millis(200);
 const LINK_TIMEOUT: Duration = Duration::from_secs(180);
 /// Horloge murale en avance de plus que ça sur l'horloge monotone : la machine a dormi.
 const SUSPEND_GAP: Duration = Duration::from_secs(15);
+/// Mesure d'un serveur (§6.5) : 3 handshakes de 1 s au plus.
+const PROBE_TRIES: u32 = 3;
+const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub enum Command {
     Status(oneshot::Sender<Status>),
     /// Statut courant et abonnement, pris ensemble : aucun changement ne se perd entre les deux.
     Subscribe(oneshot::Sender<(Status, broadcast::Receiver<Status>)>),
     Connect(Option<TunnelConfig>, oneshot::Sender<DaemonToClient>),
+    ConnectFastest(
+        Option<TunnelConfig>,
+        Vec<ServerEntry>,
+        oneshot::Sender<DaemonToClient>,
+    ),
     Disconnect(oneshot::Sender<DaemonToClient>),
     GetSettings(oneshot::Sender<DaemonSettings>),
     SetSettings(DaemonSettings, oneshot::Sender<DaemonToClient>),
@@ -39,6 +50,7 @@ pub struct Actor {
     dns: Box<dyn Dns>,
     watch: Box<dyn SystemWatch>,
     resolve: crate::Resolver,
+    prober: Box<dyn ankou_platform::Prober>,
     /// Dernière politique appliquée ; `None` : pas de table.
     firewall_policy: Option<FirewallPolicy>,
     store: Store,
@@ -111,6 +123,7 @@ impl Actor {
             dns: system.dns,
             watch: system.watch,
             resolve: system.resolve,
+            prober: system.prober,
             firewall_policy: None,
             store,
             status: Status::Disconnected,
@@ -132,6 +145,7 @@ impl Actor {
         if let Err(e) = self.tunnel.down() {
             tracing::warn!(error = %e, "nettoyage initial incomplet");
         }
+        self.prober.cleanup();
         // Règles laissées par un arrêt brutal : la protection continue, puis le service
         // se reconnecte au profil (§8.1).
         let leftover = self.firewall.is_active();
@@ -194,6 +208,9 @@ impl Actor {
             Command::Connect(config, reply) => {
                 let _ = reply.send(self.connect(config));
             }
+            Command::ConnectFastest(config, servers, reply) => {
+                let _ = reply.send(self.connect_fastest(config, servers));
+            }
             Command::Disconnect(reply) => {
                 self.handle(Event::Disconnect);
                 let _ = reply.send(DaemonToClient::Done);
@@ -232,6 +249,100 @@ impl Actor {
         let server = cfg.server_id();
         self.handle(Event::Connect { server });
         DaemonToClient::Done
+    }
+
+    /// Mesure les candidats (en parallèle), garde le plus rapide et s'y connecte (§6.5).
+    // ponytail: mesure synchrone dans l'acteur (≤ 3 s) ; tâche à part si l'IPC en souffre.
+    fn connect_fastest(
+        &mut self,
+        config: Option<TunnelConfig>,
+        servers: Vec<ServerEntry>,
+    ) -> DaemonToClient {
+        let Some(base) = config.or_else(|| self.profile.clone()) else {
+            return failed(ErrorCode::ProfileMissing, String::new());
+        };
+        let interface: InterfaceSection = base.interface;
+        let allowed_ips = base.peer.allowed_ips;
+        let candidates: Vec<(ServerEntry, SocketAddr)> = servers
+            .into_iter()
+            .take(MAX_PROBED)
+            .filter_map(|s| match (self.resolve)(&s.endpoint) {
+                Ok(addr) => Some((s, addr)),
+                Err(e) => {
+                    tracing::warn!(server = %s.name, error = %e, "candidat écarté");
+                    None
+                }
+            })
+            .collect();
+        // Table en place : ouverte aux candidats le temps de la mesure, rien d'autre.
+        let previous = self.firewall_policy.clone();
+        if let Some(prev) = &previous {
+            let mut policy = prev.clone();
+            for (_, addr) in &candidates {
+                if !policy.endpoints.contains(addr) {
+                    policy.endpoints.push(*addr);
+                }
+            }
+            if let Err(e) = self.firewall.apply(&policy) {
+                return failed(ErrorCode::FirewallUnavailable, e.to_string());
+            }
+            self.firewall_policy = Some(policy);
+        }
+        let peer = |(s, addr): &(ServerEntry, SocketAddr)| PeerSection {
+            public_key: s.public_key.clone(),
+            endpoint: Endpoint {
+                host: addr.ip().to_string(),
+                port: addr.port(),
+            },
+            allowed_ips: allowed_ips.clone(),
+            persistent_keepalive: DEFAULT_KEEPALIVE,
+        };
+        let peers: Vec<PeerSection> = candidates.iter().map(peer).collect();
+        let prober = &*self.prober;
+        let results: Vec<Vec<Duration>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = peers
+                .iter()
+                .enumerate()
+                .map(|(slot, p)| {
+                    let interface = &interface;
+                    scope
+                        .spawn(move || prober.probe(slot, interface, p, PROBE_TRIES, PROBE_TIMEOUT))
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or_default())
+                .collect()
+        });
+        let Some(best) = ankou_core::fastest(&results) else {
+            if let Some(prev) = previous {
+                if let Err(e) = self.firewall.apply(&prev) {
+                    tracing::warn!(error = %e, "pare-feu non rétabli après la mesure");
+                }
+                self.firewall_policy = Some(prev);
+            }
+            return failed(ErrorCode::ServerUnreachable, String::new());
+        };
+        let rtt = ankou_core::median(&results[best]).unwrap_or_default();
+        let (server, addr) = &candidates[best];
+        tracing::info!(server = %server.name, ?rtt, "serveur le plus rapide");
+        if let Err(e) = self.store.save_endpoint(&server.endpoint, *addr) {
+            tracing::warn!(error = %e, "cache de l'endpoint non écrit");
+        }
+        let profile = TunnelConfig {
+            interface,
+            peer: PeerSection {
+                endpoint: server.endpoint.clone(),
+                ..peer(&candidates[best])
+            },
+        };
+        match self.connect(Some(profile)) {
+            DaemonToClient::Done => DaemonToClient::Chosen {
+                server: server.name.clone(),
+                rtt_ms: u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX),
+            },
+            other => other,
+        }
     }
 
     /// Passe l'événement au cœur et exécute ses actions, qui peuvent en produire d'autres.

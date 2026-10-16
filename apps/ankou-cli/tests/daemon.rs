@@ -37,6 +37,7 @@ impl Daemon {
                 dns: Box::new(FakeDns::default()),
                 watch: Box::new(FakeWatch::default()),
                 resolve: Box::new(ankou_platform::resolve_endpoint),
+                prober: Box::new(ankou_platform::fake::FakeProber::default()),
             };
             rt.block_on(run(config, system, stop_rx)).unwrap();
         });

@@ -4,9 +4,9 @@
 
 use ankou_daemon::{DaemonConfig, System, run};
 use ankou_ipc::{Connection, connect};
-use ankou_platform::fake::{FakeDns, FakeFirewall, FakeTunnel, FakeWatch};
+use ankou_platform::fake::{FakeDns, FakeFirewall, FakeProber, FakeTunnel, FakeWatch};
 use ankou_platform::{FirewallPolicy, PlatformError};
-use ankou_proto::ipc::{ClientToDaemon, DaemonSettings, DaemonToClient, Status};
+use ankou_proto::ipc::{ClientToDaemon, DaemonSettings, DaemonToClient, ServerEntry, Status};
 use ankou_proto::{ErrorCode, TunnelConfig};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -40,6 +40,7 @@ struct Daemon {
     watch: FakeWatch,
     firewall: FakeFirewall,
     dns: FakeDns,
+    prober: FakeProber,
     stop: watch::Sender<bool>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -53,12 +54,16 @@ impl Daemon {
         let socket = state_dir.join("ankoud.sock");
         let watch = FakeWatch::default();
         let dns = FakeDns::default();
+        let prober = FakeProber::default();
         let mut cfg = DaemonConfig::new(socket.clone(), state_dir.to_owned());
         cfg.tick = Duration::from_millis(50);
         let (stop, stop_rx) = watch::channel(false);
         // Comme en vrai : sous kill switch, tunnel retiré, le DNS ne répond plus.
         let (fw, tn) = (firewall.clone(), tunnel.clone());
         let resolve = move |ep: &ankou_proto::Endpoint| {
+            if ep.host.starts_with("fail") {
+                return Err(PlatformError::Endpoint(format!("{ep} : nom inconnu")));
+            }
             if fw.active().is_some_and(|p| p.kill_switch) && !tn.is_up() {
                 return Err(PlatformError::Endpoint(format!("{ep} : DNS bloqué")));
             }
@@ -71,6 +76,7 @@ impl Daemon {
             dns: Box::new(dns.clone()),
             watch: Box::new(watch.clone()),
             resolve: Box::new(resolve),
+            prober: Box::new(prober.clone()),
         };
         let task = tokio::spawn(async move {
             run(cfg, system, stop_rx).await.unwrap();
@@ -87,6 +93,7 @@ impl Daemon {
             watch,
             firewall,
             dns,
+            prober,
             stop,
             task,
         }
@@ -820,4 +827,177 @@ async fn stop_while_disconnected_leaves_nothing() {
     wait_status(&mut w, |s| *s == Status::Disconnected).await;
     d.stop().await;
     assert_eq!(firewall.active(), None);
+}
+
+fn entry(name: &str, host: &str) -> ServerEntry {
+    ServerEntry {
+        name: name.into(),
+        public_key: config().peer.public_key,
+        endpoint: format!("{host}:51820").parse().unwrap(),
+    }
+}
+
+async fn fastest(
+    d: &Daemon,
+    config: Option<TunnelConfig>,
+    servers: Vec<ServerEntry>,
+) -> DaemonToClient {
+    let mut c = d.client().await;
+    ask(&mut c, ClientToDaemon::ConnectFastest { config, servers }).await
+}
+
+fn rtt(ms: u64) -> Vec<Duration> {
+    vec![Duration::from_millis(ms); 3]
+}
+
+#[tokio::test]
+async fn fastest_server_is_chosen_and_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    d.prober.set("127.0.0.2:51820", rtt(30));
+    d.prober.set("127.0.0.3:51820", rtt(10));
+    d.prober.set("127.0.0.4:51820", rtt(20));
+    let mut servers = vec![
+        entry("a", "127.0.0.2"),
+        entry("b", "127.0.0.3"),
+        entry("c", "127.0.0.4"),
+    ];
+    servers.extend((10..24).map(|i| entry(&format!("x{i}"), &format!("127.0.1.{i}"))));
+    assert_eq!(servers.len(), 17);
+    let mut w = d.watcher().await;
+    let reply = fastest(&d, Some(config()), servers).await;
+    assert_eq!(
+        reply,
+        DaemonToClient::Chosen {
+            server: "b".into(),
+            rtt_ms: 10
+        }
+    );
+    let seen = wait_status(&mut w, connected).await;
+    assert!(
+        matches!(seen.last(), Some(Status::Connected { server, .. }) if server == "127.0.0.3:51820")
+    );
+    assert_eq!(d.prober.probed().len(), 16);
+    d.stop().await;
+    // Le profil enregistré est le serveur choisi.
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    let mut c = d.client().await;
+    ask(&mut c, ClientToDaemon::Connect { config: None }).await;
+    let seen = wait_status(&mut w, connected).await;
+    assert!(
+        matches!(seen.last(), Some(Status::Connected { server, .. }) if server == "127.0.0.3:51820")
+    );
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn probe_opens_only_candidate_endpoints() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    d.prober.set("127.0.0.2:51820", rtt(10));
+    d.prober.set("127.0.0.3:51820", rtt(20));
+    let reply = fastest(
+        &d,
+        None,
+        vec![entry("a", "127.0.0.2"), entry("b", "127.0.0.3")],
+    )
+    .await;
+    assert!(matches!(reply, DaemonToClient::Chosen { .. }), "{reply:?}");
+    let all: Vec<std::net::SocketAddr> = ["127.0.0.1:51820", "127.0.0.2:51820", "127.0.0.3:51820"]
+        .iter()
+        .map(|a| a.parse().unwrap())
+        .collect();
+    assert!(
+        d.firewall.history().iter().any(|p| {
+            let mut e = p.endpoints.clone();
+            e.sort();
+            e == all && p.kill_switch
+        }),
+        "{:?}",
+        d.firewall.history()
+    );
+    wait_status(&mut w, connected).await;
+    assert_eq!(
+        d.firewall.active().unwrap().endpoints,
+        vec!["127.0.0.2:51820".parse::<std::net::SocketAddr>().unwrap()]
+    );
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn no_answer_keeps_current_connection() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    let reply = fastest(&d, None, vec![entry("a", "127.0.0.2")]).await;
+    assert!(
+        matches!(
+            reply,
+            DaemonToClient::Failed {
+                code: ErrorCode::ServerUnreachable,
+                ..
+            }
+        ),
+        "{reply:?}"
+    );
+    let mut c = d.client().await;
+    assert!(matches!(
+        ask(&mut c, ClientToDaemon::GetStatus).await,
+        DaemonToClient::Status { status: Status::Connected { server, .. } } if server == "127.0.0.1:51820"
+    ));
+    assert_eq!(d.firewall.active(), Some(policy(true)));
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn unresolvable_candidate_is_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    d.prober.set("127.0.0.3:51820", rtt(10));
+    let reply = fastest(
+        &d,
+        Some(config()),
+        vec![entry("a", "fail.test"), entry("b", "127.0.0.3")],
+    )
+    .await;
+    assert_eq!(
+        reply,
+        DaemonToClient::Chosen {
+            server: "b".into(),
+            rtt_ms: 10
+        }
+    );
+    assert_eq!(d.prober.probed(), ["127.0.0.3:51820"]);
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn probe_interfaces_cleaned_at_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let _w = d.watcher().await;
+    assert_eq!(d.prober.cleanups(), 1);
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn fastest_without_any_profile_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let reply = fastest(&d, None, vec![entry("a", "127.0.0.2")]).await;
+    assert!(
+        matches!(
+            reply,
+            DaemonToClient::Failed {
+                code: ErrorCode::ProfileMissing,
+                ..
+            }
+        ),
+        "{reply:?}"
+    );
+    d.stop().await;
 }

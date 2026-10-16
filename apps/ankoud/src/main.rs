@@ -36,6 +36,7 @@ async fn main() -> anyhow::Result<()> {
         dns: ankou_platform::default_dns(),
         watch: ankou_platform::default_watch(),
         resolve: Box::new(ankou_platform::resolve_endpoint),
+        prober: ankou_platform::default_prober(),
     };
     match ankou_daemon::run(config, system, stop_rx).await {
         Err(DaemonError::Ipc(IpcError::AlreadyRunning)) => {
