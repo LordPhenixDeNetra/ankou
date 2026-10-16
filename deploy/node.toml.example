@@ -17,3 +17,6 @@ token_file = "/etc/ankou/node.token"
 
 # Fréquence d'envoi des statistiques à l'API, en secondes (défaut : 60).
 # stats_interval_secs = 60
+
+# Silence de l'API (qui pinge toutes les 30 s) au-delà duquel le node se reconnecte, en secondes (défaut : 90).
+# api_timeout_secs = 90

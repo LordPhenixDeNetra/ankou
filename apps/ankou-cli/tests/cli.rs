@@ -177,3 +177,24 @@ fn enroll_without_session_says_login() {
     assert!(stderr.contains("ankou-cli login"), "{stderr}");
     assert!(!dir.path().join("client.toml").exists());
 }
+
+/// Chemin de sortie inutilisable : refusé avant tout appel à l'API (aucun appareil consommé).
+#[test]
+fn enroll_checks_output_before_calling_api() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session.toml");
+    std::fs::write(
+        &session,
+        "api_url = \"http://127.0.0.1:9\"\nrefresh_token = \"r\"\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("ankou-cli")
+        .unwrap()
+        .env("ANKOU_SESSION_FILE", &session)
+        .args(["enroll", "--lang", "en", "--name", "Laptop", "--out"])
+        .arg(dir.path().join("missing").join("client.toml"))
+        .assert()
+        .code(1);
+    let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+    assert!(stderr.contains("Local error"), "{stderr}");
+}

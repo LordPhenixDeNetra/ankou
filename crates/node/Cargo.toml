@@ -13,6 +13,7 @@ fake = []
 ankou-core.workspace = true
 ankou-proto.workspace = true
 futures-util.workspace = true
+rustls.workspace = true
 serde.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
@@ -35,6 +36,7 @@ ankou-server-store.workspace = true
 sqlx.workspace = true
 tempfile.workspace = true
 time.workspace = true
+tokio-tungstenite.workspace = true
 uuid.workspace = true
 
 [lints]

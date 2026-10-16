@@ -57,6 +57,8 @@ tempfile = "3"
 thiserror = "2"
 toml = "1"
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+# Fournisseur cryptographique de rustls pour les WebSocket des nodes (ring, déjà présent par defguard).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "uuid", "time", "ipnet"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }

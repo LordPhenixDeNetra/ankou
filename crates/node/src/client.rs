@@ -30,6 +30,9 @@ pub struct NodeConfig {
     pub keep_peers: Vec<PublicKey>,
     #[serde(default = "default_stats")]
     pub stats_interval_secs: u64,
+    /// Silence de l'API (qui pinge toutes les 30 s) au-delà duquel la connexion est tenue pour morte.
+    #[serde(default = "default_api_timeout")]
+    pub api_timeout_secs: u64,
 }
 
 fn default_interface() -> String {
@@ -40,6 +43,9 @@ fn default_cache() -> PathBuf {
 }
 fn default_stats() -> u64 {
     60
+}
+fn default_api_timeout() -> u64 {
+    90
 }
 
 pub type SharedBackend = Arc<Mutex<dyn PeerBackend>>;
@@ -140,14 +146,16 @@ impl Node {
         let mut stats =
             tokio::time::interval(Duration::from_secs(self.config.stats_interval_secs.max(1)));
         stats.tick().await; // le premier tick est immédiat
+        let silence = Duration::from_secs(self.config.api_timeout_secs.max(1));
         loop {
             tokio::select! {
                 _ = stop.changed() => {
                     let _ = ws.close(None).await;
                     return Ok(End::Stop);
                 }
-                incoming = ws.next() => match incoming {
-                    Some(Ok(Message::Text(text))) => {
+                incoming = tokio::time::timeout(silence, ws.next()) => match incoming {
+                    Err(_) => return Ok(End::Lost("API muette".into())),
+                    Ok(Some(Ok(Message::Text(text)))) => {
                         let msg: ApiToNode = serde_json::from_str(&text).map_err(|e| NodeError::Api(e.to_string()))?;
                         match msg {
                             ApiToNode::Incompatible { api_version } => return Err(NodeError::Incompatible(api_version)),
@@ -158,9 +166,9 @@ impl Node {
                             other => self.apply(other)?,
                         }
                     }
-                    Some(Ok(Message::Close(_))) | None => return Ok(End::Lost("fermé par l'API".into())),
-                    Some(Ok(_)) => {}
-                    Some(Err(e)) => return Ok(End::Lost(e.to_string())),
+                    Ok(Some(Ok(Message::Close(_))) | None) => return Ok(End::Lost("fermé par l'API".into())),
+                    Ok(Some(Ok(_))) => {}
+                    Ok(Some(Err(e))) => return Ok(End::Lost(e.to_string())),
                 },
                 _ = stats.tick() => {
                     let peers = self.lock()?.stats().unwrap_or_default();
@@ -181,6 +189,9 @@ pub async fn run(
     backend: SharedBackend,
     mut stop: watch::Receiver<bool>,
 ) -> Result<(), NodeError> {
+    // Sans fournisseur explicite, rustls panique au premier `wss://` (aucun, ou plusieurs
+    // quand d'autres crates du workspace activent aws-lc). Déjà installé : sans effet.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let cache = PeerCache::new(config.cache_file.clone());
     let desired = cache.load();
     let mut node = Node {

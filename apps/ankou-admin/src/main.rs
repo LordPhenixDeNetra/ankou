@@ -82,7 +82,7 @@ enum ServerAction {
 enum UserAction {
     /// List users
     List,
-    /// Disable a user (and close their sessions)
+    /// Disable a user (closes their sessions, removes their devices from the nodes)
     Disable { email: String },
     /// Enable a user
     Enable { email: String },

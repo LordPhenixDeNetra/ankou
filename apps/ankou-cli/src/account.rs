@@ -134,49 +134,37 @@ pub async fn servers(loc: &Localizer) -> Outcome {
 pub async fn enroll(loc: &Localizer, name: &str, out: &Path, server: Option<&str>) -> Outcome {
     let shown_path = out.display().to_string();
     let mut client = saved_client(loc)?;
-    if out.exists() {
-        return Err(Shown(t!(
-            loc,
-            "cli-init-exists",
-            path = shown_path.as_str()
-        )));
+    // Fichier créé avant tout appel : jamais d'écrasement, et un chemin inutilisable
+    // ne consomme pas d'appareil (sa clé privée serait perdue).
+    let mut file = match create_private(out) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(Shown(t!(
+                loc,
+                "cli-init-exists",
+                path = shown_path.as_str()
+            )));
+        }
+        Err(e) => return Err(local_error(loc, e)),
+    };
+    let result = register_device(loc, &mut client, name, server)
+        .await
+        .and_then(|(config, server)| {
+            let text = toml::to_string(&config).map_err(|e| local_error(loc, e))?;
+            file.write_all(text.as_bytes())
+                .map_err(|e| local_error(loc, e))?;
+            Ok((config.interface.address, server))
+        });
+    if result.is_err() {
+        let _ = std::fs::remove_file(out);
     }
-    // Serveur choisi avant l'enrôlement : un nom faux ne doit pas consommer un appareil.
-    let result = client.servers().await;
-    save(loc, &client)?;
-    let servers = result.map_err(|e| client_error(loc, e))?;
-    let chosen = match server {
-        None => servers
-            .into_iter()
-            .next()
-            .ok_or_else(|| Shown(t!(loc, "cli-no-server")))?,
-        Some(n) => servers
-            .into_iter()
-            .find(|s| s.name == n)
-            .ok_or_else(|| Shown(t!(loc, "cli-unknown-server", name = n)))?,
-    };
-    let key = PrivateKey::generate();
-    let result = client.enroll(name, &key.public_key()).await;
-    save(loc, &client)?;
-    let enrolled = result.map_err(|e| client_error(loc, e))?;
-    let config = TunnelConfig {
-        interface: InterfaceSection {
-            private_key: key,
-            address: enrolled.address.clone(),
-        },
-        peer: PeerSection {
-            public_key: chosen.public_key.clone(),
-            endpoint: chosen.endpoint.clone(),
-            allowed_ips: vec![ipnet::Ipv4Net::default().into()],
-            persistent_keepalive: DEFAULT_KEEPALIVE,
-        },
-    };
-    let text = toml::to_string(&config).map_err(|e| local_error(loc, e))?;
-    create_private(out)
-        .and_then(|mut f| f.write_all(text.as_bytes()))
-        .map_err(|e| local_error(loc, e))?;
-    let address = enrolled
-        .address
+    // Le jeton a tourné : la session est gardée même si la suite a échoué ; son échec
+    // n'annule pas une configuration déjà écrite.
+    if let Err(Shown(message)) = save(loc, &client) {
+        eprintln!("{message}");
+    }
+    let (address, server) = result?;
+    let address = address
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>()
@@ -188,8 +176,47 @@ pub async fn enroll(loc: &Localizer, name: &str, out: &Path, server: Option<&str
             "cli-enroll-done",
             path = shown_path.as_str(),
             address = address.as_str(),
-            server = chosen.name.as_str()
+            server = server.as_str()
         )
     );
     Ok(())
+}
+
+/// Choisit le serveur (avant l'enrôlement : un nom faux ne consomme pas d'appareil),
+/// enregistre une nouvelle clé et renvoie la configuration du tunnel et le nom du serveur.
+async fn register_device(
+    loc: &Localizer,
+    client: &mut ApiClient,
+    name: &str,
+    server: Option<&str>,
+) -> Result<(TunnelConfig, String), Shown> {
+    let servers = client.servers().await.map_err(|e| client_error(loc, e))?;
+    let chosen = match server {
+        None => servers
+            .into_iter()
+            .next()
+            .ok_or_else(|| Shown(t!(loc, "cli-no-server")))?,
+        Some(n) => servers
+            .into_iter()
+            .find(|s| s.name == n)
+            .ok_or_else(|| Shown(t!(loc, "cli-unknown-server", name = n)))?,
+    };
+    let key = PrivateKey::generate();
+    let enrolled = client
+        .enroll(name, &key.public_key())
+        .await
+        .map_err(|e| client_error(loc, e))?;
+    let config = TunnelConfig {
+        interface: InterfaceSection {
+            private_key: key,
+            address: enrolled.address,
+        },
+        peer: PeerSection {
+            public_key: chosen.public_key,
+            endpoint: chosen.endpoint,
+            allowed_ips: vec![ipnet::Ipv4Net::default().into()],
+            persistent_keepalive: DEFAULT_KEEPALIVE,
+        },
+    };
+    Ok((config, chosen.name))
 }

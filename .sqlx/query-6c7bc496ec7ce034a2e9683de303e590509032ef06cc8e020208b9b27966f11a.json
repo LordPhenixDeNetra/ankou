@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT public_key, ipv4 FROM devices WHERE revoked_at IS NULL ORDER BY ipv4",
+  "query": "SELECT d.public_key, d.ipv4 FROM devices d JOIN users u ON u.id = d.user_id\n             WHERE d.revoked_at IS NULL AND u.disabled_at IS NULL ORDER BY d.ipv4",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "8dd17ce58662572b6a2d8186f8c4e285834f8e8cae8ff5fa6dc160a10947a8e4"
+  "hash": "6c7bc496ec7ce034a2e9683de303e590509032ef06cc8e020208b9b27966f11a"
 }

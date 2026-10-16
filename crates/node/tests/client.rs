@@ -92,6 +92,7 @@ fn config(api: SocketAddr, cache: std::path::PathBuf) -> NodeConfig {
         cache_file: cache,
         keep_peers: vec![],
         stats_interval_secs: 60,
+        api_timeout_secs: 90,
     }
 }
 
@@ -257,4 +258,51 @@ async fn node_survives_api_restart(pool: PgPool) {
     tokio::task::spawn_blocking(move || api.stop())
         .await
         .unwrap();
+}
+
+/// `wss://` vers un service qui ne parle pas TLS : échec propre et nouvelle tentative, pas de panique.
+#[tokio::test]
+async fn wss_failure_is_clean() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((sock, _)) = listener.accept().await {
+            drop(sock);
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(addr, dir.path().join("peers.json"));
+    cfg.api_url = format!("wss://{addr}/v1/nodes/ws");
+    let node = start_node(cfg, FakeBackend::default());
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    node.shutdown().await;
+}
+
+/// API muette (connexion à moitié ouverte) : le node le détecte et se reconnecte.
+#[tokio::test]
+async fn silent_api_is_detected() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let accepted = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let count = accepted.clone();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((sock, _)) = listener.accept().await {
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            held.push(tokio_tungstenite::accept_async(sock).await.unwrap());
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let mut cfg = config(addr, dir.path().join("peers.json"));
+    cfg.api_timeout_secs = 1;
+    let node = start_node(cfg, FakeBackend::default());
+    let start = Instant::now();
+    while accepted.load(std::sync::atomic::Ordering::SeqCst) < 2 {
+        assert!(
+            start.elapsed() < Duration::from_secs(6),
+            "pas de reconnexion"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    node.shutdown().await;
 }

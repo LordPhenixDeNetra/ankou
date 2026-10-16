@@ -59,23 +59,26 @@ impl Store {
         .transpose()
     }
 
-    /// Pairs de tous les appareils non révoqués.
+    /// Pairs de tous les appareils non révoqués des comptes actifs.
     pub async fn active_peers(&self) -> Result<Vec<NodePeer>, StoreError> {
-        sqlx::query!("SELECT public_key, ipv4 FROM devices WHERE revoked_at IS NULL ORDER BY ipv4")
-            .fetch_all(&self.pool)
-            .await?
-            .into_iter()
-            .map(|r| {
-                let ipv4 = match IpNet::addr(&r.ipv4) {
-                    IpAddr::V4(ip) => ip,
-                    IpAddr::V6(_) => return decode(Err(std::io::Error::other("ipv4 attendue"))),
-                };
-                Ok(NodePeer {
-                    public_key: decode(r.public_key.parse())?,
-                    ipv4,
-                })
+        sqlx::query!(
+            "SELECT d.public_key, d.ipv4 FROM devices d JOIN users u ON u.id = d.user_id
+             WHERE d.revoked_at IS NULL AND u.disabled_at IS NULL ORDER BY d.ipv4"
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(|r| {
+            let ipv4 = match IpNet::addr(&r.ipv4) {
+                IpAddr::V4(ip) => ip,
+                IpAddr::V6(_) => return decode(Err(std::io::Error::other("ipv4 attendue"))),
+            };
+            Ok(NodePeer {
+                public_key: decode(r.public_key.parse())?,
+                ipv4,
             })
-            .collect()
+        })
+        .collect()
     }
 
     /// Garde le handshake le plus récent connu de chaque appareil ; clés inconnues ignorées.

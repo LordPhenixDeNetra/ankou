@@ -452,6 +452,29 @@ mod nodes {
         assert_eq!(peers[0].ipv4, Ipv4Addr::new(10, 8, 0, 3));
     }
 
+    /// Compte désactivé : ses appareils quittent les nodes ; réactivé : ils reviennent.
+    #[sqlx::test]
+    #[ignore = "PostgreSQL requis"]
+    async fn disabling_user_removes_its_peers(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let uid = user(&store, "a@x.org").await;
+        let k = key();
+        store.enroll_device(uid, "A", &k, pool_net()).await.unwrap();
+        let mut listener = PgListener::connect_with(&pool).await.unwrap();
+        listener.listen(PEER_CHANNEL).await.unwrap();
+        store.set_user_disabled("a@x.org", true).await.unwrap();
+        assert_eq!(
+            next_change(&mut listener).await,
+            PeerChange::Removed(k.clone())
+        );
+        assert!(store.active_peers().await.unwrap().is_empty());
+        store.set_user_disabled("a@x.org", false).await.unwrap();
+        assert!(
+            matches!(next_change(&mut listener).await, PeerChange::Added(p) if p.public_key == k)
+        );
+        assert_eq!(store.active_peers().await.unwrap().len(), 1);
+    }
+
     #[sqlx::test]
     #[ignore = "PostgreSQL requis"]
     async fn stats_keep_latest_handshake(pool: PgPool) {
