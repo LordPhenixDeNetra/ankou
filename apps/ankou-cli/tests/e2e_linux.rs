@@ -201,6 +201,41 @@ fn spawn_client(config: &PathBuf, retries: u32) -> (Child, mpsc::Receiver<String
     (child, rx)
 }
 
+/// Attend « Connected to » ; sinon arrête le client et échoue avec un état complet du réseau.
+fn await_connected(child: &mut Child, rx: &mpsc::Receiver<String>) {
+    if wait_for_line(rx, "Connected to", Duration::from_secs(10)) {
+        return;
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let mut stderr = String::new();
+    if let Some(mut e) = child.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut e, &mut stderr);
+    }
+    let mut report = format!("pas de connexion\n--- stderr du client ---\n{stderr}");
+    for args in [
+        &["ip", "netns", "exec", CLIENT_NS, "wg", "show"][..],
+        &["ip", "netns", "exec", SERVER_NS, "wg", "show"],
+        &["ip", "-n", CLIENT_NS, "addr"],
+        &["ip", "-n", CLIENT_NS, "rule"],
+        &["ip", "-n", CLIENT_NS, "route", "show", "table", "all"],
+    ] {
+        let out = Command::new(args[0]).args(&args[1..]).output();
+        let text = out.map_or_else(
+            |e| e.to_string(),
+            |o| {
+                format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                )
+            },
+        );
+        report.push_str(&format!("--- {} ---\n{text}", args.join(" ")));
+    }
+    panic!("{report}");
+}
+
 fn wait_for_line(rx: &mpsc::Receiver<String>, needle: &str, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while let Some(left) = deadline.checked_duration_since(Instant::now()) {
@@ -252,7 +287,7 @@ fn signal(child: &Child, sig: &str) {
 fn connect_then_signal(sig: &str) {
     let (_lab, config) = Lab::new(true, true);
     let (mut child, rx) = spawn_client(&config, 0);
-    assert!(wait_for_line(&rx, "Connected to", Duration::from_secs(10)));
+    await_connected(&mut child, &rx);
     let route = run(&["ip", "-n", CLIENT_NS, "route", "get", "10.200.0.1"]);
     assert!(route.contains("dev ankou0"), "trafic hors tunnel : {route}");
     signal(&child, sig);
@@ -266,10 +301,7 @@ fn connect_then_signal(sig: &str) {
 fn connects_and_routes_all_traffic() {
     let (_lab, config) = Lab::new(true, false);
     let (mut child, rx) = spawn_client(&config, 0);
-    assert!(
-        wait_for_line(&rx, "Connected to", Duration::from_secs(10)),
-        "pas de connexion"
-    );
+    await_connected(&mut child, &rx);
     assert!(
         succeeds(&[
             "ip",

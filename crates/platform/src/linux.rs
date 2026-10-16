@@ -84,7 +84,7 @@ impl Tunnel for KernelTunnel {
             .is_empty();
         let configured = api
             .configure_interface(&config)
-            .and_then(|()| api.configure_peer_routing(&[peer]));
+            .and_then(|()| api.configure_peer_routing(std::slice::from_ref(&peer)));
         if let Err(e) = configured {
             // Ne rien laisser derrière en cas d'échec partiel.
             let _ = self.down();
@@ -94,6 +94,17 @@ impl Tunnel for KernelTunnel {
         // inutile avec le routage par fwmark, trou noir sans passerelle, et jamais retirée.
         if !route_existed {
             let _ = ip(&["route", "del", &endpoint_route]);
+        }
+        // Le premier handshake part pendant la configuration, avant le routage final (et la
+        // bibliothèque recrée le pair en posant le fwmark) ; WireGuard ne réessaie qu'après 5 s.
+        // Repasser le keepalive de 0 à sa valeur fait envoyer tout de suite une nouvelle initiation.
+        let keepalive = cfg.peer.persistent_keepalive;
+        for interval in [0, keepalive] {
+            peer.persistent_keepalive_interval = Some(interval);
+            if let Err(e) = api.configure_peer(&peer) {
+                let _ = self.down();
+                return Err(map_err(e));
+            }
         }
         Ok(())
     }
