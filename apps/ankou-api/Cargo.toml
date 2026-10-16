@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-ankou-proto.workspace = true
+ankou-proto = { workspace = true, features = ["openapi"] }
 ankou-server-domain.workspace = true
 ankou-server-store.workspace = true
 lpdnsoft-log.workspace = true

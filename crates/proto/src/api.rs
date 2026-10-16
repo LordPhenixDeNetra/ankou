@@ -8,6 +8,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RegisterRequest {
     #[serde(default)]
     pub invitation_code: Option<String>,
@@ -16,17 +17,20 @@ pub struct RegisterRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TokenPair {
     pub access_token: String,
     pub refresh_token: String,
@@ -35,41 +39,52 @@ pub struct TokenPair {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ServerInfo {
     pub id: Uuid,
     pub name: String,
     pub country: String,
     pub city: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = String))]
     pub endpoint: Endpoint,
+    #[cfg_attr(feature = "openapi", schema(value_type = String))]
     pub public_key: PublicKey,
     pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EnrollDeviceRequest {
     pub name: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = String))]
     pub public_key: PublicKey,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct DeviceInfo {
     pub id: Uuid,
     pub name: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = String))]
     pub public_key: PublicKey,
+    #[cfg_attr(feature = "openapi", schema(value_type = String))]
     pub ipv4: Ipv4Addr,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct EnrollDeviceResponse {
     pub device: DeviceInfo,
     /// Adresses de l'interface du client (`ipv4/32`).
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>))]
     pub address: Vec<IpNet>,
     pub servers: Vec<ServerInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ApiError {
     pub code: ApiErrorCode,
     /// Détail technique (anglais) ; les clients traduisent à partir de `code`.
@@ -78,6 +93,7 @@ pub struct ApiError {
 
 /// Codes d'erreur stables de l'API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub enum ApiErrorCode {
     #[serde(rename = "E_AUTH_INVALID")]
     AuthInvalid,

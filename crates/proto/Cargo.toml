@@ -6,7 +6,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# Schémas OpenAPI des DTO (utilisé par ankou-api).
+openapi = ["dep:utoipa"]
+
 [dependencies]
+utoipa = { workspace = true, optional = true }
 base64.workspace = true
 ipnet.workspace = true
 serde.workspace = true

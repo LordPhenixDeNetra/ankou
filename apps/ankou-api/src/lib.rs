@@ -3,6 +3,8 @@
 pub mod auth;
 mod config;
 mod error;
+mod json;
+mod openapi;
 mod routes;
 
 pub use config::ApiConfig;
@@ -57,6 +59,19 @@ pub fn router(state: AppState) -> Router {
             get(|| async { axum::Json(serde_json::json!({"status": "ok"})) }),
         )
         .route("/v1/me", get(routes::auth::me))
+        .route("/v1/servers", get(routes::servers::list))
+        .route(
+            "/v1/devices",
+            get(routes::devices::list).post(routes::devices::enroll),
+        )
+        .route(
+            "/v1/devices/{id}",
+            axum::routing::delete(routes::devices::revoke),
+        )
+        .route(
+            "/v1/openapi.json",
+            get(|| async { axum::Json(<openapi::ApiDoc as utoipa::OpenApi>::openapi()) }),
+        )
         .nest("/v1/auth", auth)
         .with_state(state)
 }

@@ -4,7 +4,10 @@ use crate::auth::{
     verify_password,
 };
 use crate::error::AppError;
-use ankou_proto::api::{ApiErrorCode, LoginRequest, RefreshRequest, RegisterRequest, TokenPair};
+use crate::json::ApiJson;
+use ankou_proto::api::{
+    ApiError, ApiErrorCode, LoginRequest, RefreshRequest, RegisterRequest, TokenPair,
+};
 use ankou_server_domain::{hash_secret, normalize_email, validate_password};
 use axum::Json;
 use axum::extract::State;
@@ -45,9 +48,11 @@ async fn blocking<T: Send + 'static>(
         .map_err(AppError::internal)
 }
 
+/// Crée un compte avec un code d'invitation.
+#[utoipa::path(post, path = "/v1/auth/register", request_body = RegisterRequest, responses((status = 201, body = TokenPair), (status = 422, body = ApiError)))]
 pub async fn register(
     State(state): State<AppState>,
-    Json(req): Json<RegisterRequest>,
+    ApiJson(req): ApiJson<RegisterRequest>,
 ) -> Result<(StatusCode, Json<TokenPair>), AppError> {
     let email = normalize_email(&req.email)?;
     validate_password(&req.password)?;
@@ -73,9 +78,11 @@ pub async fn register(
     ))
 }
 
+/// Connexion par e-mail et mot de passe.
+#[utoipa::path(post, path = "/v1/auth/login", request_body = LoginRequest, responses((status = 200, body = TokenPair), (status = 401, body = ApiError)))]
 pub async fn login(
     State(state): State<AppState>,
-    Json(req): Json<LoginRequest>,
+    ApiJson(req): ApiJson<LoginRequest>,
 ) -> Result<Json<TokenPair>, AppError> {
     let user = match normalize_email(&req.email) {
         Ok(email) => state.store.user_by_email(&email).await?,
@@ -92,9 +99,11 @@ pub async fn login(
     }
 }
 
+/// Échange un refresh token contre une nouvelle paire (l'ancien devient invalide).
+#[utoipa::path(post, path = "/v1/auth/refresh", request_body = RefreshRequest, responses((status = 200, body = TokenPair), (status = 401, body = ApiError)))]
 pub async fn refresh(
     State(state): State<AppState>,
-    Json(req): Json<RefreshRequest>,
+    ApiJson(req): ApiJson<RefreshRequest>,
 ) -> Result<Json<TokenPair>, AppError> {
     let now = OffsetDateTime::now_utc();
     let new = random_secret();
@@ -115,9 +124,11 @@ pub async fn refresh(
     }))
 }
 
+/// Révoque un refresh token.
+#[utoipa::path(post, path = "/v1/auth/logout", request_body = RefreshRequest, responses((status = 204)))]
 pub async fn logout(
     State(state): State<AppState>,
-    Json(req): Json<RefreshRequest>,
+    ApiJson(req): ApiJson<RefreshRequest>,
 ) -> Result<StatusCode, AppError> {
     state
         .store
@@ -126,6 +137,8 @@ pub async fn logout(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Identifiant de l'utilisateur du jeton.
+#[utoipa::path(get, path = "/v1/me", responses((status = 200)), security(("bearer" = [])))]
 pub async fn me(AuthUser(id): AuthUser) -> Json<Value> {
     Json(json!({ "id": id }))
 }

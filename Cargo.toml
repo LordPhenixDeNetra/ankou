@@ -30,7 +30,7 @@ lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }
 lpdnsoft-log = { path = "../lpdnsoft-libs/crates/log", version = "0.1.0" }
 anyhow = "1"
 argon2 = "0.6"
-axum = "0.8"
+axum = { version = "0.8", features = ["macros"] }
 getrandom = "0.4"
 pasetors = "0.8"
 tower = { version = "0.5", features = ["util"] }

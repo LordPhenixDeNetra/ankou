@@ -327,3 +327,188 @@ async fn auth_routes_are_rate_limited(pool: PgPool) {
     let (status, _) = call_from(&app, "198.51.100.8", "GET", "/v1/health", None, None).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+async fn add_server(store: &Store) {
+    store
+        .add_server(ankou_server_store::NewServer {
+            name: "vps1".into(),
+            country: "FR".into(),
+            city: "Paris".into(),
+            endpoint: "vps1.example.org:51820".parse().unwrap(),
+            public_key: ankou_proto::PrivateKey::generate().public_key(),
+            tags: vec![],
+            node_token_hash: hash_secret(&auth::random_secret()),
+        })
+        .await
+        .unwrap();
+}
+
+async fn token(app: &App, email: &str) -> String {
+    register(app, email).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+fn new_key() -> String {
+    ankou_proto::PrivateKey::generate().public_key().to_string()
+}
+
+#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
+#[ignore = "PostgreSQL requis"]
+async fn servers_require_auth(pool: PgPool) {
+    let app = app(pool);
+    add_server(&app.store).await;
+    let (status, err) = call(&app, "GET", "/v1/servers", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(err["code"], "E_AUTH_INVALID");
+    let t = token(&app, "a@x.org").await;
+    let (status, list) = call(&app, "GET", "/v1/servers", Some(&t), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list[0]["name"], "vps1");
+    assert_eq!(list[0]["endpoint"], "vps1.example.org:51820");
+}
+
+#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
+#[ignore = "PostgreSQL requis"]
+async fn enroll_returns_address_and_servers(pool: PgPool) {
+    let app = app(pool);
+    add_server(&app.store).await;
+    let t = token(&app, "a@x.org").await;
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        Some(&t),
+        Some(json!({"name": "  Laptop ", "public_key": new_key()})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["address"], json!(["10.8.0.2/32"]));
+    assert_eq!(body["servers"].as_array().unwrap().len(), 1);
+    assert_eq!(body["device"]["name"], "Laptop");
+    let (_, list) = call(&app, "GET", "/v1/devices", Some(&t), None).await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+}
+
+#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
+#[ignore = "PostgreSQL requis"]
+async fn enroll_rejects_bad_input(pool: PgPool) {
+    let app = app(pool);
+    let t = token(&app, "a@x.org").await;
+    let (status, err) = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        Some(&t),
+        Some(json!({"name": " ", "public_key": new_key()})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(err["code"], "E_VALIDATION");
+    let (status, err) = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        Some(&t),
+        Some(json!({"name": "A", "public_key": "pas-une-clé"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(err["code"], "E_VALIDATION");
+    let k = new_key();
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        Some(&t),
+        Some(json!({"name": "A", "public_key": k})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, err) = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        Some(&t),
+        Some(json!({"name": "B", "public_key": k})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(err["code"], "E_DEVICE_KEY_TAKEN");
+}
+
+#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
+#[ignore = "PostgreSQL requis"]
+async fn revoked_device_frees_ip_and_key(pool: PgPool) {
+    let app = app(pool);
+    let t = token(&app, "a@x.org").await;
+    let k = new_key();
+    let (_, a) = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        Some(&t),
+        Some(json!({"name": "A", "public_key": k})),
+    )
+    .await;
+    let id = a["device"]["id"].as_str().unwrap().to_owned();
+    let (status, _) = call(&app, "DELETE", &format!("/v1/devices/{id}"), Some(&t), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, list) = call(&app, "GET", "/v1/devices", Some(&t), None).await;
+    assert_eq!(list, json!([]));
+    let (status, again) = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        Some(&t),
+        Some(json!({"name": "A", "public_key": k})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(again["device"]["ipv4"], "10.8.0.2");
+}
+
+#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
+#[ignore = "PostgreSQL requis"]
+async fn cannot_revoke_someone_elses_device(pool: PgPool) {
+    let app = app(pool);
+    let t1 = token(&app, "a@x.org").await;
+    let t2 = token(&app, "b@x.org").await;
+    let (_, a) = call(
+        &app,
+        "POST",
+        "/v1/devices",
+        Some(&t1),
+        Some(json!({"name": "A", "public_key": new_key()})),
+    )
+    .await;
+    let id = a["device"]["id"].as_str().unwrap().to_owned();
+    let (status, err) = call(
+        &app,
+        "DELETE",
+        &format!("/v1/devices/{id}"),
+        Some(&t2),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(err["code"], "E_NOT_FOUND");
+}
+
+#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
+#[ignore = "PostgreSQL requis"]
+async fn openapi_lists_routes(pool: PgPool) {
+    let app = app(pool);
+    let (status, doc) = call(&app, "GET", "/v1/openapi.json", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let text = doc.to_string();
+    for route in [
+        "/v1/devices",
+        "/v1/auth/login",
+        "/v1/servers",
+        "/v1/devices/{id}",
+    ] {
+        assert!(text.contains(route), "{route} absent");
+    }
+}
