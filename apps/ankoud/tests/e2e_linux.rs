@@ -85,6 +85,15 @@ impl Lab {
             "veth-s",
         ]);
         run(&["ip", "-n", SERVER_NS, "link", "set", "veth-s", "up"]);
+        // IPv6 sur le réseau local, pour les tests de fuite (nodad : utilisable tout de suite).
+        for (ns, dev, addr) in [
+            (CLIENT_NS, "veth-c", "fd00:77::1/64"),
+            (SERVER_NS, "veth-s", "fd00:77::2/64"),
+        ] {
+            run(&[
+                "ip", "-n", ns, "-6", "addr", "add", addr, "dev", dev, "nodad",
+            ]);
+        }
 
         let server_key = PrivateKey::generate();
         let client_key = PrivateKey::generate();
@@ -284,6 +293,26 @@ fn assert_clean() {
             .any(|l| l.starts_with("192.168.77.2 ") || l.contains("blackhole")),
         "routes restées :\n{routes}"
     );
+    assert!(
+        !succeeds(&[
+            "ip", "netns", "exec", CLIENT_NS, "nft", "list", "table", "inet", "ankou"
+        ]),
+        "table nftables restée"
+    );
+}
+
+/// `ping` depuis le namespace client (`-6` pour une adresse IPv6).
+fn reachable(addr: &str) -> bool {
+    let family = if addr.contains(':') { "-6" } else { "-4" };
+    succeeds(&[
+        "ip", "netns", "exec", CLIENT_NS, "ping", family, "-c1", "-W1", addr,
+    ])
+}
+
+/// Envoi UDP depuis le namespace client ; nftables refuse l'envoi (EPERM) s'il bloque.
+fn udp_send(ip: &str, port: u16) -> bool {
+    let script = format!("echo x > /dev/udp/{ip}/{port}");
+    succeeds(&["ip", "netns", "exec", CLIENT_NS, "bash", "-c", &script])
 }
 
 fn signal(child: &Child, sig: &str) {
@@ -385,6 +414,120 @@ fn unreachable_server_keeps_trying() {
     assert_eq!(code, Some(1));
     assert!(stderr.contains("Still trying"), "{stderr}");
     assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
+    assert_clean();
+    stop_daemon(daemon);
+}
+
+#[test]
+#[ignore]
+fn ipv6_blocked_while_connected() {
+    let (lab, config) = Lab::new(true, true);
+    let dir = lab.dir.path();
+    let daemon = spawn_daemon(dir);
+    assert!(reachable("fd00:77::2"), "IPv6 local absent avant connexion");
+    assert_eq!(cli(dir, &["killswitch", "off"]).0, Some(0));
+    connect(dir, &config);
+    assert!(!reachable("fd00:77::2"), "fuite IPv6");
+    assert!(
+        reachable("192.168.77.2"),
+        "IPv4 local bloqué sans kill switch"
+    );
+    assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
+    assert!(reachable("fd00:77::2"));
+    assert_clean();
+    stop_daemon(daemon);
+}
+
+#[test]
+#[ignore]
+fn kill_switch_blocks_outside_tunnel() {
+    let (lab, config) = Lab::new(true, false);
+    let dir = lab.dir.path();
+    let daemon = spawn_daemon(dir);
+    connect(dir, &config);
+    assert!(!reachable("192.168.77.2"), "fuite IPv4 hors tunnel");
+    assert!(reachable("10.200.0.1"), "tunnel inutilisable");
+    assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
+    assert!(reachable("192.168.77.2"));
+    assert_clean();
+    stop_daemon(daemon);
+}
+
+#[test]
+#[ignore]
+fn dns_outside_tunnel_is_blocked() {
+    let (lab, config) = Lab::new(true, true);
+    let dir = lab.dir.path();
+    let daemon = spawn_daemon(dir);
+    assert!(
+        udp_send("192.168.77.2", 53),
+        "envoi UDP impossible avant connexion"
+    );
+    connect(dir, &config);
+    assert!(
+        !udp_send("192.168.77.2", 53),
+        "fuite DNS vers le réseau local"
+    );
+    assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
+    assert!(udp_send("192.168.77.2", 53));
+    stop_daemon(daemon);
+}
+
+#[test]
+#[ignore]
+fn kill_switch_holds_while_server_unreachable() {
+    let (lab, config) = Lab::new(false, true);
+    let dir = lab.dir.path();
+    let daemon = spawn_daemon(dir);
+    let (code, _, _) = cli(
+        dir,
+        &[
+            "connect",
+            "--wait",
+            "6",
+            "--config",
+            config.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(code, Some(1));
+    assert!(
+        !reachable("192.168.77.2"),
+        "fuite pendant les nouvelles tentatives"
+    );
+    assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
+    assert!(reachable("192.168.77.2"));
+    assert_clean();
+    stop_daemon(daemon);
+}
+
+#[test]
+#[ignore]
+fn kill_switch_survives_daemon_crash() {
+    let (lab, config) = Lab::new(true, true);
+    let dir = lab.dir.path();
+    let mut daemon = spawn_daemon(dir);
+    connect(dir, &config);
+    signal(&daemon, "-KILL");
+    let _ = daemon.wait();
+    // Tunnel disparu, service mort : les règles restent, rien ne sort.
+    run(&["ip", "-n", CLIENT_NS, "link", "del", "ankou0"]);
+    assert!(
+        !reachable("192.168.77.2"),
+        "fuite après le crash du service"
+    );
+    // auto_connect désactivé : la reprise vient des règles restées.
+    let daemon = spawn_daemon(dir);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (_, stdout, _) = cli(dir, &["status"]);
+        if stdout.contains("Connected to") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "pas de reprise : {stdout}");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
+    assert!(reachable("192.168.77.2"));
     assert_clean();
     stop_daemon(daemon);
 }
