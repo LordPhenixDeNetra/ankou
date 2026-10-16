@@ -54,6 +54,11 @@ enum Command {
         #[arg(value_enum)]
         state: Toggle,
     },
+    /// Block all traffic outside the tunnel while connected (on by default)
+    Killswitch {
+        #[arg(value_enum)]
+        state: Toggle,
+    },
     /// Create an account with an invitation code (password asked twice)
     Register {
         /// API address, e.g. https://api.example.org
@@ -137,6 +142,9 @@ fn main() -> anyhow::Result<ExitCode> {
         Command::Status => daemon::run(daemon::status(&loc))?,
         Command::Autoconnect { state } => {
             daemon::run(daemon::autoconnect(&loc, matches!(state, Toggle::On)))?
+        }
+        Command::Killswitch { state } => {
+            daemon::run(daemon::killswitch(&loc, matches!(state, Toggle::On)))?
         }
         Command::Register {
             api,

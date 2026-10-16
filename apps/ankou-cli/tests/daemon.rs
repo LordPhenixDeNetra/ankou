@@ -132,3 +132,19 @@ fn cli_connect_gives_up_waiting() {
         .code(1);
     assert!(out(&a).1.contains("Still trying"), "{:?}", out(&a));
 }
+
+#[test]
+fn cli_killswitch_toggle_and_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default());
+    let a = d.cli().arg("status").assert().code(0);
+    assert!(out(&a).0.contains("Kill switch: on"), "{:?}", out(&a));
+    d.cli().args(["killswitch", "off"]).assert().code(0);
+    let settings = std::fs::read_to_string(dir.path().join("state/settings.toml")).unwrap();
+    assert!(settings.contains("kill_switch = false"), "{settings}");
+    let a = d.cli().arg("status").assert().code(0);
+    assert!(out(&a).0.contains("Kill switch: off"), "{:?}", out(&a));
+    d.cli().args(["killswitch", "on"]).assert().code(0);
+    let a = d.cli().arg("status").assert().code(0);
+    assert!(out(&a).0.contains("Kill switch: on"), "{:?}", out(&a));
+}
