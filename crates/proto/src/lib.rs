@@ -8,6 +8,7 @@ pub const APP_NAME: &str = "aNkou";
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod api;
 mod config;
 mod error;
 mod keys;

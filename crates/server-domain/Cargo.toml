@@ -1,0 +1,16 @@
+[package]
+name = "ankou-server-domain"
+description = "Règles pures du serveur aNkou : validation, invitations, adresses, limites."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ipnet.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+time.workspace = true
+
+[lints]
+workspace = true
