@@ -53,6 +53,7 @@ async fn serve(config: ApiConfig) -> anyhow::Result<()> {
         store,
         key,
         config: Arc::new(config),
+        argon2: AppState::argon2_permits(),
     };
     axum::serve(
         listener,

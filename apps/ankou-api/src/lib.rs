@@ -17,6 +17,7 @@ use axum::routing::{get, post};
 use pasetors::keys::SymmetricKey;
 use pasetors::version4::V4;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tower_governor::GovernorLayer;
 use tower_governor::governor::GovernorConfigBuilder;
 use tower_governor::key_extractor::SmartIpKeyExtractor;
@@ -26,6 +27,16 @@ pub struct AppState {
     pub store: Store,
     pub key: SymmetricKey<V4>,
     pub config: Arc<ApiConfig>,
+    /// Jetons pour les hachages Argon2 simultanés (~19 Mio chacun).
+    pub argon2: Arc<Semaphore>,
+}
+
+impl AppState {
+    /// Autant de hachages simultanés que de cœurs : au-delà, ils attendent.
+    pub fn argon2_permits() -> Arc<Semaphore> {
+        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+        Arc::new(Semaphore::new(cores))
+    }
 }
 
 /// Requêtes par seconde et rafale autorisées par IP sur `/v1/auth/*`.

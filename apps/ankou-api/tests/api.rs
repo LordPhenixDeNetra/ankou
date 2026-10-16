@@ -25,6 +25,7 @@ fn app_with(pool: PgPool, registration_open: bool) -> App {
     let state = AppState {
         store: store.clone(),
         key: auth::random_key(),
+        argon2: AppState::argon2_permits(),
         config: Arc::new(ApiConfig {
             registration_open,
             ..ApiConfig::for_tests()
@@ -511,4 +512,57 @@ async fn openapi_lists_routes(pool: PgPool) {
     ] {
         assert!(text.contains(route), "{route} absent");
     }
+}
+
+#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
+#[ignore = "PostgreSQL requis"]
+async fn refresh_during_database_outage_is_internal(pool: PgPool) {
+    let app = app(pool.clone());
+    let r = register(&app, "a@x.org").await["refresh_token"].clone();
+    pool.close().await;
+    let (status, err) = call(
+        &app,
+        "POST",
+        "/v1/auth/refresh",
+        None,
+        Some(json!({"refresh_token": r})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(err["code"], "E_INTERNAL");
+}
+
+#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
+#[ignore = "PostgreSQL requis"]
+async fn argon2_runs_are_capped(pool: PgPool) {
+    let app = app(pool);
+    let permits = app.state.argon2.available_permits() as u32;
+    assert!(permits >= 1);
+    let held = app
+        .state
+        .argon2
+        .clone()
+        .acquire_many_owned(permits)
+        .await
+        .unwrap();
+    let router = app.router.clone();
+    let login = tokio::spawn(async move {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/auth/login")
+            .header("x-forwarded-for", "203.0.113.9")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({"email": "x@x.org", "password": PASSWORD}).to_string(),
+            ))
+            .unwrap();
+        router.oneshot(req).await.unwrap().status()
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        !login.is_finished(),
+        "le hachage a démarré sans jeton du sémaphore"
+    );
+    drop(held);
+    assert_eq!(login.await.unwrap(), StatusCode::UNAUTHORIZED);
 }

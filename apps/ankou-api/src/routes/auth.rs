@@ -9,6 +9,7 @@ use ankou_proto::api::{
     ApiError, ApiErrorCode, LoginRequest, RefreshRequest, RegisterRequest, TokenPair,
 };
 use ankou_server_domain::{hash_secret, normalize_email, validate_password};
+use ankou_server_store::StoreError;
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -39,13 +40,23 @@ async fn issue_tokens(state: &AppState, user: Uuid) -> Result<TokenPair, AppErro
     })
 }
 
-/// Argon2 est coûteux : hors du fil asynchrone.
-async fn blocking<T: Send + 'static>(
+/// Argon2 est coûteux en CPU et en mémoire : hors du fil asynchrone, et en nombre limité.
+async fn hashing<T: Send + 'static>(
+    state: &AppState,
     f: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, AppError> {
-    tokio::task::spawn_blocking(f)
+    let permit = state
+        .argon2
+        .clone()
+        .acquire_owned()
         .await
-        .map_err(AppError::internal)
+        .map_err(AppError::internal)?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        f()
+    })
+    .await
+    .map_err(AppError::internal)
 }
 
 /// Crée un compte avec un code d'invitation.
@@ -67,7 +78,7 @@ pub async fn register(
         }
     };
     let password = req.password;
-    let hash = blocking(move || hash_password(&password)).await??;
+    let hash = hashing(&state, move || hash_password(&password)).await??;
     let user = state
         .store
         .register_user(invitation, &email, &hash, OffsetDateTime::now_utc())
@@ -92,7 +103,7 @@ pub async fn login(
         .as_ref()
         .map_or_else(|| DUMMY_HASH.clone(), |u| u.password_hash.clone());
     let password = req.password;
-    let ok = blocking(move || verify_password(&password, &hash)).await?;
+    let ok = hashing(&state, move || verify_password(&password, &hash)).await?;
     match user {
         Some(u) if ok && !u.disabled => Ok(Json(issue_tokens(&state, u.id).await?)),
         _ => Err(invalid()),
@@ -116,7 +127,11 @@ pub async fn refresh(
             now,
         )
         .await
-        .map_err(|_| invalid())?;
+        .map_err(|e| match e {
+            // Jeton inconnu, expiré ou déjà utilisé ; une panne de base reste une erreur interne.
+            StoreError::NotFound => invalid(),
+            e => e.into(),
+        })?;
     Ok(Json(TokenPair {
         access_token: issue_access_token_at(&state.key, user, now)?,
         refresh_token: new,
