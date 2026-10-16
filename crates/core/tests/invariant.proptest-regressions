@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5451787cb683809851d70e05a72b766c09e3095b4b8f14529442ac915430118c # shrinks to events = [Connect { server: ServerId("a") }, Failure { code: ServerUnreachable }], auto_reconnect = false, max_attempts = 0, seed = 0
