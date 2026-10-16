@@ -1,0 +1,17 @@
+[Unit]
+Description=aNkou API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=ankou-api
+ExecStart=/usr/local/bin/ankou-api serve --config /etc/ankou/api.toml
+Restart=on-failure
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
