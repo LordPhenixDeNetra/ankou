@@ -182,3 +182,51 @@ fn backoff_is_capped_with_jitter() {
         assert!(ms(backoff(u32::MAX, &mut rng)) <= 30_000);
     }
 }
+
+#[test]
+fn fatal_while_connecting_gives_error() {
+    let now = Instant::now();
+    let mut m = Machine::new(settings(false), 7);
+    m.handle(Event::Connect { server: srv() }, now);
+    let a = m.handle(
+        Event::Fatal {
+            code: ErrorCode::TunnelPermission,
+        },
+        now,
+    );
+    let error = State::Error {
+        code: ErrorCode::TunnelPermission,
+    };
+    assert_eq!(a, [Action::BringTunnelDown, Action::Notify(error.clone())]);
+    assert_eq!(m.state(), &error);
+}
+
+#[test]
+fn fatal_with_kill_switch_blocks() {
+    let now = Instant::now();
+    let mut m = connected(true, now);
+    let a = m.handle(
+        Event::Fatal {
+            code: ErrorCode::TunnelUnavailable,
+        },
+        now,
+    );
+    assert!(!a.contains(&Action::ClearFirewall), "{a:?}");
+    assert_eq!(
+        m.state(),
+        &State::Blocked {
+            reason: ErrorCode::TunnelUnavailable
+        }
+    );
+    // Depuis Disconnected : ignoré.
+    let mut idle = Machine::new(settings(false), 7);
+    assert!(
+        idle.handle(
+            Event::Fatal {
+                code: ErrorCode::Internal
+            },
+            now
+        )
+        .is_empty()
+    );
+}

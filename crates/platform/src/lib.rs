@@ -4,10 +4,13 @@
 pub mod fake;
 #[cfg(target_os = "linux")]
 mod linux;
+mod watch;
 
 use ankou_proto::{Endpoint, ErrorCode, TunnelConfig};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::SystemTime;
+
+pub use watch::{SystemWatch, default_watch, parse_default_route};
 
 /// Nom de l'interface WireGuard du client.
 pub const INTERFACE: &str = "ankou0";
@@ -73,7 +76,7 @@ pub fn resolve_endpoint(ep: &Endpoint) -> Result<SocketAddr, PlatformError> {
 }
 
 /// Moteur de tunnel du système courant.
-pub fn default_tunnel() -> Box<dyn Tunnel> {
+pub fn default_tunnel() -> Box<dyn Tunnel + Send> {
     #[cfg(target_os = "linux")]
     {
         Box::new(linux::KernelTunnel::new(INTERFACE))

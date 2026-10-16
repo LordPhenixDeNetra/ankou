@@ -166,20 +166,18 @@ mod tests {
         });
         let mut t = FakeTunnel::default();
         assert_eq!(run(&loc(), &config(), &mut t, 3, rx), Ok(()));
-        assert_eq!(t.calls, ["up ankou0", "down"]);
+        assert_eq!(t.calls(), ["up ankou0", "down"]);
     }
 
     #[test]
     fn run_gives_up_without_handshake() {
         let (_tx, rx) = mpsc::channel();
-        let mut t = FakeTunnel {
-            handshake_after_up: false,
-            ..FakeTunnel::default()
-        };
+        let mut t = FakeTunnel::default();
+        t.set_handshakes(false);
         assert_eq!(
             run(&loc(), &config(), &mut t, 0, rx),
             Err(ErrorCode::ServerUnreachable)
         );
-        assert_eq!(t.calls.last().map(String::as_str), Some("down"));
+        assert_eq!(t.calls().last().map(String::as_str), Some("down"));
     }
 }

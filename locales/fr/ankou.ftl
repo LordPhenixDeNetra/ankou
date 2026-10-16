@@ -10,6 +10,7 @@ cli-status-disconnected = Déconnecté.
 error-tunnel-permission = Des droits administrateur sont nécessaires : lancez la commande avec sudo.
 error-tunnel-unavailable = WireGuard n'est pas disponible sur ce système ({ $detail }).
 error-server-unreachable = Le serveur { $server } ne répond pas.
+error-profile-missing = Aucune configuration enregistrée : lancez ankou-cli connect --config <fichier>.
 error-internal = Erreur interne : { $detail }
 admin-invite-created = Invitation créée (valable jusqu'au { $expires }) : { $code }
 admin-server-added = Serveur { $name } ajouté. Jeton du node, affiché une seule fois : { $token }

@@ -21,14 +21,22 @@ pub enum State {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
-    Connect { server: ServerId },
+    Connect {
+        server: ServerId,
+    },
     Disconnect,
     TunnelUp,
-    Failure { code: ErrorCode },
+    Failure {
+        code: ErrorCode,
+    },
     LinkLost,
     Resume,
     NetworkChanged,
     RetryDue,
+    /// Erreur sans issue (droits, moteur absent) : réessayer ne sert à rien.
+    Fatal {
+        code: ErrorCode,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,7 +93,8 @@ impl Machine {
                 });
                 Some(State::Connecting { server })
             }
-            (State::Disconnected, Event::Disconnect) => None,
+            (State::Disconnected, Event::Disconnect | Event::Fatal { .. }) => None,
+            (_, Event::Fatal { code }) => Some(self.give_up(code, &mut actions)),
             (_, Event::Disconnect) => {
                 actions.push(Action::BringTunnelDown);
                 if self.settings.kill_switch {
