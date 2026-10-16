@@ -1,7 +1,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use ankou_ipc::{Framed, IpcError, IpcListener, connect};
-use ankou_proto::ipc::{ClientToDaemon, DaemonToClient, IPC_PROTOCOL_VERSION};
+// Tests de socket : Unix seulement (named pipe Windows à l'étape 5).
+use ankou_ipc::{Framed, IpcError};
+#[cfg(unix)]
+use ankou_ipc::{IpcListener, connect};
+use ankou_proto::ipc::ClientToDaemon;
+#[cfg(unix)]
+use ankou_proto::ipc::{DaemonToClient, IPC_PROTOCOL_VERSION};
 use tokio::io::AsyncWriteExt;
 
 #[tokio::test]
@@ -51,6 +56,7 @@ async fn garbage_json_is_an_error() {
 }
 
 /// Serveur d'une seule connexion qui répond `reply` au `Hello`.
+#[cfg(unix)]
 async fn serve_once(listener: IpcListener, reply: DaemonToClient) {
     let mut conn = listener.accept().await.unwrap();
     let hello = conn.recv::<ClientToDaemon>().await.unwrap();
@@ -63,6 +69,7 @@ async fn serve_once(listener: IpcListener, reply: DaemonToClient) {
     conn.send(&reply).await.unwrap();
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn connect_does_handshake() {
     let dir = tempfile::tempdir().unwrap();
@@ -78,6 +85,7 @@ async fn connect_does_handshake() {
     server.await.unwrap();
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn incompatible_daemon_is_reported() {
     let dir = tempfile::tempdir().unwrap();
@@ -94,6 +102,7 @@ async fn incompatible_daemon_is_reported() {
     server.await.unwrap();
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn missing_daemon_is_an_io_error() {
     let dir = tempfile::tempdir().unwrap();
@@ -115,6 +124,7 @@ async fn stale_socket_is_replaced() {
     let _listener = IpcListener::bind(&path).await.unwrap();
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn second_daemon_is_refused() {
     let dir = tempfile::tempdir().unwrap();

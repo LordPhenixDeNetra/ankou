@@ -1,3 +1,5 @@
+//! Socket local dans un dossier temporaire : Unix seulement (named pipe Windows à l'étape 5).
+#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ankou_daemon::{DaemonConfig, run};

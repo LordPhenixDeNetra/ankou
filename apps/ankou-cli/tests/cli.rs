@@ -130,6 +130,8 @@ fn world_readable_config_warns() {
     assert!(stderr(&a).contains("chmod 600"), "{}", stderr(&a));
 }
 
+/// Message propre à Linux (systemd) ; le service Windows arrive à l'étape 5.
+#[cfg(unix)]
 #[test]
 fn connect_without_daemon_says_start_it() {
     let dir = tempfile::tempdir().unwrap();
