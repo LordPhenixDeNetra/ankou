@@ -107,6 +107,9 @@ async fn answer(
         ClientToDaemon::Connect { config } => {
             ask(commands, |tx| Command::Connect(config, tx)).await?
         }
+        ClientToDaemon::ConnectFastest { config, servers } => {
+            ask(commands, |tx| Command::ConnectFastest(config, servers, tx)).await?
+        }
         ClientToDaemon::Disconnect => ask(commands, Command::Disconnect).await?,
         ClientToDaemon::GetSettings => DaemonToClient::Settings {
             settings: ask(commands, Command::GetSettings).await?,

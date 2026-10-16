@@ -50,3 +50,32 @@ fn connect_roundtrip_keeps_config() {
         json!({"type": "connect", "config": null})
     );
 }
+
+#[test]
+fn connect_fastest_is_tagged() {
+    use ankou_proto::ipc::ServerEntry;
+    let entry = ServerEntry {
+        name: "vps1".into(),
+        public_key: "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
+            .parse()
+            .unwrap(),
+        endpoint: "1.2.3.4:51820".parse().unwrap(),
+    };
+    let msg = ClientToDaemon::ConnectFastest {
+        config: None,
+        servers: vec![entry],
+    };
+    let v = serde_json::to_value(&msg).unwrap();
+    assert_eq!(v["type"], "connect_fastest");
+    assert_eq!(v["servers"][0]["endpoint"], "1.2.3.4:51820");
+    assert_eq!(serde_json::from_value::<ClientToDaemon>(v).unwrap(), msg);
+    assert_eq!(
+        serde_json::to_value(DaemonToClient::Chosen {
+            server: "vps1".into(),
+            rtt_ms: 12
+        })
+        .unwrap(),
+        json!({"type": "chosen", "server": "vps1", "rtt_ms": 12})
+    );
+    assert_eq!(ankou_proto::ipc::MAX_PROBED, 16);
+}

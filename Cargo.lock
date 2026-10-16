@@ -115,10 +115,12 @@ dependencies = [
  "lpdnsoft-i18n",
  "lpdnsoft-log",
  "rpassword",
+ "serde_json",
  "tempfile",
  "tokio",
  "toml",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -267,6 +269,7 @@ dependencies = [
  "lpdnsoft-log",
  "tempfile",
  "tokio",
+ "toml",
 ]
 
 [[package]]

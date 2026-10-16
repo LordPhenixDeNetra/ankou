@@ -6,7 +6,7 @@ mod session;
 mod store;
 
 use ankou_ipc::{IpcError, IpcListener};
-use ankou_platform::{Dns, Firewall, PlatformError, SystemWatch, Tunnel};
+use ankou_platform::{Dns, Firewall, PlatformError, Prober, SystemWatch, Tunnel};
 use ankou_proto::Endpoint;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -40,6 +40,8 @@ pub struct System {
     pub dns: Box<dyn Dns>,
     pub watch: Box<dyn SystemWatch>,
     pub resolve: Resolver,
+    /// Mesure des serveurs pour le choix automatique.
+    pub prober: Box<dyn Prober>,
 }
 
 #[derive(Debug, thiserror::Error)]

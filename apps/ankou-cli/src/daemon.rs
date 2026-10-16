@@ -133,10 +133,30 @@ fn status_line(loc: &Localizer, status: &Status) -> String {
     }
 }
 
-pub async fn connect(loc: &Localizer, config: Option<TunnelConfig>, wait: Duration) -> Outcome {
-    let server = config.as_ref().map(|c| c.server_id().0).unwrap_or_default();
+/// `fastest` : `(pays, étiquette)` pour mesurer les serveurs et garder le plus rapide.
+pub async fn connect(
+    loc: &Localizer,
+    config: Option<TunnelConfig>,
+    wait: Duration,
+    fastest: Option<(Option<String>, Option<String>)>,
+) -> Outcome {
+    // Avec --fastest, le serveur n'est connu qu'à la réponse `Chosen`.
+    let mut server = match (&fastest, &config) {
+        (None, Some(c)) => c.server_id().0,
+        _ => String::new(),
+    };
+    let request = match fastest {
+        None => ClientToDaemon::Connect { config },
+        Some((country, tag)) => {
+            let servers =
+                crate::account::fastest_candidates(loc, country.as_deref(), tag.as_deref())
+                    .await
+                    .map_err(Shown)?;
+            ClientToDaemon::ConnectFastest { config, servers }
+        }
+    };
     let (mut conn, _) = subscribed(loc).await?;
-    send(loc, &mut conn, ClientToDaemon::Connect { config }).await?;
+    send(loc, &mut conn, request).await?;
     let deadline = tokio::time::Instant::now() + wait;
     loop {
         let msg = match tokio::time::timeout_at(deadline, recv(loc, &mut conn)).await {
@@ -146,6 +166,27 @@ pub async fn connect(loc: &Localizer, config: Option<TunnelConfig>, wait: Durati
         };
         let status = match msg {
             DaemonToClient::Done => continue,
+            DaemonToClient::Chosen {
+                server: name,
+                rtt_ms,
+            } => {
+                println!(
+                    "{}",
+                    t!(
+                        loc,
+                        "cli-fastest-chosen",
+                        server = name.as_str(),
+                        rtt = rtt_ms
+                    )
+                );
+                server = name;
+                continue;
+            }
+            // Mesure sans réponse : aucun nom de serveur à citer.
+            DaemonToClient::Failed {
+                code: ErrorCode::ServerUnreachable,
+                ..
+            } if server.is_empty() => return Err(Shown(t!(loc, "cli-fastest-none"))),
             DaemonToClient::Failed { code, detail } => {
                 return Err(Shown(error_message(loc, code, &server, &detail)));
             }

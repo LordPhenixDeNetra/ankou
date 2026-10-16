@@ -44,6 +44,15 @@ enum Command {
         /// Seconds to wait for the connection before returning
         #[arg(long, default_value_t = 30)]
         wait: u64,
+        /// Measure the servers (from the API) and connect to the fastest
+        #[arg(long)]
+        fastest: bool,
+        /// With --fastest: only servers of this country (ISO code)
+        #[arg(long, requires = "fastest")]
+        country: Option<String>,
+        /// With --fastest: only servers with this tag
+        #[arg(long, requires = "fastest")]
+        tag: Option<String>,
     },
     /// Ask the ankoud service to disconnect
     Disconnect,
@@ -137,7 +146,18 @@ fn main() -> anyhow::Result<ExitCode> {
             ExitCode::SUCCESS
         }
         Command::Init { out } => init(&loc, &out)?,
-        Command::Connect { config, wait } => connect(&loc, config.as_deref(), wait)?,
+        Command::Connect {
+            config,
+            wait,
+            fastest,
+            country,
+            tag,
+        } => connect(
+            &loc,
+            config.as_deref(),
+            wait,
+            fastest.then_some((country, tag)),
+        )?,
         Command::Disconnect => daemon::run(daemon::disconnect(&loc))?,
         Command::Status => daemon::run(daemon::status(&loc))?,
         Command::Autoconnect { state } => {
@@ -202,10 +222,15 @@ fn init(loc: &Localizer, out: &Path) -> anyhow::Result<ExitCode> {
 }
 
 /// Lit et valide le fichier ici (messages précis, code 2), puis délègue au service.
-fn connect(loc: &Localizer, config: Option<&Path>, wait: u64) -> anyhow::Result<ExitCode> {
+fn connect(
+    loc: &Localizer,
+    config: Option<&Path>,
+    wait: u64,
+    fastest: Option<(Option<String>, Option<String>)>,
+) -> anyhow::Result<ExitCode> {
     let wait = Duration::from_secs(wait);
     let Some(config) = config else {
-        return daemon::run(daemon::connect(loc, None, wait));
+        return daemon::run(daemon::connect(loc, None, wait, fastest));
     };
     let path = config.display().to_string();
     let parsed = std::fs::read_to_string(config)
@@ -236,5 +261,5 @@ fn connect(loc: &Localizer, config: Option<&Path>, wait: u64) -> anyhow::Result<
             );
         }
     }
-    daemon::run(daemon::connect(loc, Some(cfg), wait))
+    daemon::run(daemon::connect(loc, Some(cfg), wait, fastest))
 }

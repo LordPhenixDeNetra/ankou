@@ -51,3 +51,7 @@ cli-killswitch-off = Kill switch désactivé (l'IPv6 reste bloqué pendant la co
 cli-killswitch-state-on = Kill switch : activé
 cli-killswitch-state-off = Kill switch : désactivé
 cli-blocked-hint = Trafic bloqué par le kill switch ; ankou-cli disconnect pour rétablir l'accès direct.
+cli-fastest-chosen = Serveur le plus rapide : { $server } ({ $rtt } ms).
+cli-no-matching-server = Aucun serveur ne correspond (pays { $country }, étiquette { $tag }). Liste : ankou-cli servers
+cli-fastest-none = Aucun serveur n'a répondu à la mesure ; la connexion en cours est inchangée.
+cli-servers-cached = API injoignable : dernière liste de serveurs connue utilisée.

@@ -2,9 +2,11 @@
 //! depuis le test pendant que le code testé les possède.
 
 use crate::{
-    Dns, Firewall, FirewallPolicy, INTERFACE, PlatformError, SystemWatch, Tunnel, TunnelStats,
+    Dns, Firewall, FirewallPolicy, INTERFACE, PlatformError, Prober, SystemWatch, Tunnel,
+    TunnelStats,
 };
-use ankou_proto::TunnelConfig;
+use ankou_proto::{InterfaceSection, PeerSection, TunnelConfig};
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
@@ -133,6 +135,7 @@ impl SystemWatch for FakeWatch {
 #[derive(Default)]
 struct FirewallState {
     active: Option<FirewallPolicy>,
+    history: Vec<FirewallPolicy>,
     fail: bool,
 }
 
@@ -142,6 +145,10 @@ pub struct FakeFirewall(Arc<Mutex<FirewallState>>);
 impl FakeFirewall {
     pub fn active(&self) -> Option<FirewallPolicy> {
         lock(&self.0).active.clone()
+    }
+    /// Toutes les politiques appliquées, dans l'ordre.
+    pub fn history(&self) -> Vec<FirewallPolicy> {
+        lock(&self.0).history.clone()
     }
     /// `true` : `apply` échoue, comme sans `nft`.
     pub fn fail(&self, on: bool) {
@@ -160,6 +167,7 @@ impl Firewall for FakeFirewall {
             return Err(PlatformError::Unavailable("nft introuvable".into()));
         }
         s.active = Some(policy.clone());
+        s.history.push(policy.clone());
         Ok(())
     }
     fn clear(&mut self) -> Result<(), PlatformError> {
@@ -201,5 +209,48 @@ impl Dns for FakeDns {
     }
     fn revert(&mut self, _interface: &str) {
         lock(&self.0).current = None;
+    }
+}
+
+#[derive(Default)]
+struct ProberState {
+    answers: HashMap<String, Vec<Duration>>,
+    probed: Vec<String>,
+    cleanups: usize,
+}
+
+#[derive(Clone, Default)]
+pub struct FakeProber(Arc<Mutex<ProberState>>);
+
+impl FakeProber {
+    /// Mesures renvoyées pour l'endpoint `"hôte:port"` (inconnu : aucune réponse).
+    pub fn set(&self, endpoint: &str, rtts: Vec<Duration>) {
+        lock(&self.0).answers.insert(endpoint.to_owned(), rtts);
+    }
+    /// Endpoints mesurés, dans l'ordre d'appel.
+    pub fn probed(&self) -> Vec<String> {
+        lock(&self.0).probed.clone()
+    }
+    pub fn cleanups(&self) -> usize {
+        lock(&self.0).cleanups
+    }
+}
+
+impl Prober for FakeProber {
+    fn probe(
+        &self,
+        _slot: usize,
+        _interface: &InterfaceSection,
+        peer: &PeerSection,
+        _tries: u32,
+        _timeout: Duration,
+    ) -> Vec<Duration> {
+        let key = peer.endpoint.to_string();
+        let mut s = lock(&self.0);
+        s.probed.push(key.clone());
+        s.answers.get(&key).cloned().unwrap_or_default()
+    }
+    fn cleanup(&self) {
+        lock(&self.0).cleanups += 1;
     }
 }
