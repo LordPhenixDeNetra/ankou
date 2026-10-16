@@ -31,7 +31,8 @@ lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }
 lpdnsoft-log = { path = "../lpdnsoft-libs/crates/log", version = "0.1.0" }
 anyhow = "1"
 argon2 = "0.6"
-axum = { version = "0.8", features = ["macros"] }
+axum = { version = "0.8", features = ["macros", "ws"] }
+futures-util = "0.3"
 getrandom = "0.4"
 pasetors = "0.8"
 tower = { version = "0.5", features = ["util"] }
@@ -48,6 +49,7 @@ serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 thiserror = "2"
 toml = "1"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "uuid", "time", "ipnet"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }

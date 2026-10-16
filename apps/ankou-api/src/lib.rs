@@ -4,11 +4,13 @@ pub mod auth;
 mod config;
 mod error;
 mod json;
+mod nodes;
 mod openapi;
 mod routes;
 
 pub use config::ApiConfig;
 pub use error::AppError;
+pub use nodes::{HubEvent, PeerHub, listen_peer_changes};
 
 use ankou_proto::api::ApiErrorCode;
 use ankou_server_store::Store;
@@ -29,6 +31,8 @@ pub struct AppState {
     pub config: Arc<ApiConfig>,
     /// Jetons pour les hachages Argon2 simultanés (~19 Mio chacun).
     pub argon2: Arc<Semaphore>,
+    /// Changements de pairs à relayer aux nodes.
+    pub hub: PeerHub,
 }
 
 impl AppState {
@@ -71,6 +75,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/me", get(routes::auth::me))
         .route("/v1/servers", get(routes::servers::list))
+        .route("/v1/nodes/ws", get(routes::nodes::ws))
         .route(
             "/v1/devices",
             get(routes::devices::list).post(routes::devices::enroll),
