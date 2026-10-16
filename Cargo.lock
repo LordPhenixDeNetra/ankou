@@ -425,6 +425,7 @@ dependencies = [
  "ankou-platform",
  "ankou-proto",
  "eframe",
+ "egui",
  "egui_kittest",
  "lpdnsoft-i18n",
  "lpdnsoft-settings",
@@ -435,6 +436,7 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

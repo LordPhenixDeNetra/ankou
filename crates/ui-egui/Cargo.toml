@@ -11,6 +11,7 @@ ankou-api-client.workspace = true
 ankou-ipc.workspace = true
 ankou-proto.workspace = true
 eframe.workspace = true
+egui.workspace = true
 lpdnsoft-i18n.workspace = true
 lpdnsoft-settings.workspace = true
 lpdnsoft-ui.workspace = true
@@ -24,6 +25,7 @@ ankou-daemon.workspace = true
 ankou-platform = { workspace = true, features = ["fake"] }
 egui_kittest.workspace = true
 tempfile.workspace = true
+uuid.workspace = true
 toml.workspace = true
 
 [lints]
