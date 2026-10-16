@@ -31,11 +31,20 @@ pub struct Framed<S> {
     stream: S,
 }
 
-impl<S: AsyncRead + AsyncWrite + Unpin> Framed<S> {
+impl<S> Framed<S> {
     pub fn new(stream: S) -> Self {
         Self { stream }
     }
 
+    /// Flux brut, par exemple pour le couper en deux avec `tokio::io::split` : `recv`
+    /// n'est pas annulable sans perte, une lecture et une écriture concurrentes passent
+    /// donc par deux moitiés.
+    pub fn into_inner(self) -> S {
+        self.stream
+    }
+}
+
+impl<S: AsyncWrite + Unpin> Framed<S> {
     pub async fn send<T: Serialize>(&mut self, msg: &T) -> Result<(), IpcError> {
         let body = serde_json::to_vec(msg).map_err(|e| IpcError::Json(e.to_string()))?;
         let len = u32::try_from(body.len())
@@ -47,7 +56,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Framed<S> {
         self.stream.flush().await?;
         Ok(())
     }
+}
 
+impl<S: AsyncRead + Unpin> Framed<S> {
     /// `Ok(None)` : l'autre côté a fermé proprement, entre deux trames.
     pub async fn recv<T: DeserializeOwned>(&mut self) -> Result<Option<T>, IpcError> {
         let len = match self.stream.read_u32().await {

@@ -130,6 +130,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "ankou-daemon"
+version = "0.1.0"
+dependencies = [
+ "ankou-core",
+ "ankou-ipc",
+ "ankou-platform",
+ "ankou-proto",
+ "lpdnsoft-atomic",
+ "lpdnsoft-settings",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "ankou-ipc"
 version = "0.1.0"
 dependencies = [
