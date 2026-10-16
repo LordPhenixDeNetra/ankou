@@ -40,6 +40,8 @@ Prérequis : Rust stable ≥ 1.90, `cargo install cargo-deny --locked`.
 
 Aucune chaîne visible en dur dans `apps/*` (hors aide `--help` de clap) : tout passe par `t!(&loc, "id", arg = valeur)`. Ajouter chaque clé dans `locales/en/ankou.ftl` **et** `locales/fr/ankou.ftl` : une clé absente casse la compilation. Le `build.rs` de chaque app fixe `LPDNSOFT_I18N_LOCALES_DIR` vers `locales/`.
 
+Attention : `t!` vérifie les clés dans **tous** les `.ftl` de `locales/<langue>/`, mais à l'exécution seuls les fichiers passés à `Localizer::new` (via `include_str!`) sont chargés. Tout nouveau `.ftl` doit donc être ajouté aussi à la liste des `Resource` de chaque app, sinon l'utilisateur verra l'identifiant brut.
+
 ## Commits
 
 Conventional Commits en français (`feat(cli): …`, `fix(proto): …`, `ci: …`, `docs: …`), terminés par la ligne `Co-Authored-By:` de l'agent le cas échéant. Windows : `git config core.longpaths true`, dossier parent court (`C:\dev\LPDNSoft`).
