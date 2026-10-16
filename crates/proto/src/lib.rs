@@ -7,3 +7,11 @@ pub const APP_NAME: &str = "aNkou";
 /// Version du protocole client ↔ service ↔ serveur.
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+mod config;
+mod error;
+mod keys;
+
+pub use config::{Endpoint, EndpointError, InterfaceSection, PeerSection, ServerId, TunnelConfig};
+pub use error::ErrorCode;
+pub use keys::{KeyError, PrivateKey, PublicKey};

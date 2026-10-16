@@ -4,11 +4,11 @@ Client VPN de la suite **LPDNSoft**, écrit en Rust, pour Windows, Linux et macO
 
 ## État
 
-**Étape 0 — socle** : dépôts, workspaces, CI sur les trois OS, bibliothèques communes (`lpdnsoft-libs` : i18n, réglages, écriture atomique, logs) et un premier binaire `ankou-cli` bilingue. Aucun tunnel VPN pour l'instant (étape 1).
+**Étape 1 — tunnel Linux en ligne de commande** : `sudo ankou-cli connect --config client.toml` ouvre un tunnel WireGuard (noyau Linux) vers un serveur et y fait passer tout le trafic ; Ctrl+C le retire proprement. Le serveur se configure à la main pour l'instant : voir `docs/runbooks/etape-1-tunnel-manuel.md`. Pas encore de kill switch, d'interface graphique ni de compte (étapes 2 à 4) ; Windows et macOS compilent mais `connect` n'y est pas encore disponible (étape 5).
 
 ## Compiler depuis les sources
 
-Prérequis : Rust stable ≥ 1.90 (`rustup`), git.
+Prérequis : Rust stable ≥ 1.91 (`rustup`), git.
 
 ```sh
 mkdir LPDNSoft && cd LPDNSoft          # Windows : un chemin court, ex. C:\dev\LPDNSoft
@@ -17,6 +17,7 @@ git clone https://github.com/LordPhenixDeNetra/ankou.git
 cd ankou
 cargo run -p ankou-cli -- version              # langue du système
 cargo run -p ankou-cli -- version --lang fr    # aNkou 0.1.0 (protocole 1)
+cargo run -p ankou-cli -- init --out client.toml   # nouvelle clé + modèle de configuration
 ```
 
 Contrôles complets (comme la CI) : `cargo install cargo-deny --locked`, puis `cargo xtask ci`.

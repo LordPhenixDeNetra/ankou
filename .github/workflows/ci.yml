@@ -34,3 +34,33 @@ jobs:
           tool: cargo-deny
       - run: cargo xtask ci
         working-directory: ankou
+
+  # Vrai tunnel WireGuard entre deux namespaces réseau (root requis).
+  e2e-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ankou
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/lpdnsoft-libs
+          path: lpdnsoft-libs
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ankou
+      - name: Outils WireGuard
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wireguard-tools
+          sudo modprobe wireguard
+      - name: Compilation des tests
+        working-directory: ankou
+        run: cargo test -p ankou-cli --test e2e_linux --no-run
+      - name: Tests de bout en bout
+        working-directory: ankou
+        run: sudo -E env "PATH=$PATH" cargo test -p ankou-cli --test e2e_linux -- --ignored --test-threads=1
+      - name: Rendre target/ au runner (cache)
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" ankou/target

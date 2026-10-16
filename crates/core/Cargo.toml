@@ -1,0 +1,16 @@
+[package]
+name = "ankou-core"
+description = "Machine à états de connexion d'aNkou, sans entrée/sortie."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ankou-proto.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -7,14 +7,21 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+ankou-core.workspace = true
+ankou-platform.workspace = true
 ankou-proto.workspace = true
 lpdnsoft-i18n.workspace = true
 lpdnsoft-log.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+ctrlc.workspace = true
+toml.workspace = true
+tracing = "0.1"
 
 [dev-dependencies]
+ankou-platform = { workspace = true, features = ["fake"] }
 assert_cmd.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true
