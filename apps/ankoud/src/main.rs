@@ -1,6 +1,6 @@
 //! `ankoud` : service système d'aNkou (root), piloté par `ankou-cli` par l'IPC local.
 
-use ankou_daemon::{DaemonConfig, DaemonError};
+use ankou_daemon::{DaemonConfig, DaemonError, System};
 use ankou_ipc::IpcError;
 use clap::Parser;
 use std::path::PathBuf;
@@ -30,14 +30,13 @@ async fn main() -> anyhow::Result<()> {
         let _ = stop.send(true);
     });
     let config = DaemonConfig::new(cli.socket.clone(), cli.state_dir);
-    match ankou_daemon::run(
-        config,
-        ankou_platform::default_tunnel(),
-        ankou_platform::default_watch(),
-        stop_rx,
-    )
-    .await
-    {
+    let system = System {
+        tunnel: ankou_platform::default_tunnel(),
+        firewall: ankou_platform::default_firewall(),
+        dns: ankou_platform::default_dns(),
+        watch: ankou_platform::default_watch(),
+    };
+    match ankou_daemon::run(config, system, stop_rx).await {
         Err(DaemonError::Ipc(IpcError::AlreadyRunning)) => {
             anyhow::bail!("ankoud tourne déjà (socket {})", cli.socket.display())
         }

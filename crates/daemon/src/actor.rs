@@ -1,12 +1,16 @@
 //! L'acteur : seul propriétaire de la machine à états et du tunnel. Les commandes des
 //! sessions arrivent une par une, donc deux clients ne se marchent jamais dessus.
 
+use crate::System;
 use crate::store::Store;
 use ankou_core::{Action, CoreSettings, Event, Machine, State};
-use ankou_platform::{PlatformError, SystemWatch, Tunnel};
+use ankou_platform::{
+    Dns, Firewall, FirewallPolicy, INTERFACE, PlatformError, SystemWatch, Tunnel, resolve_endpoint,
+};
 use ankou_proto::ipc::{DaemonSettings, DaemonToClient, Status};
-use ankou_proto::{ErrorCode, TunnelConfig};
+use ankou_proto::{DEFAULT_DNS, Endpoint, ErrorCode, TunnelConfig};
 use std::collections::VecDeque;
+use std::net::SocketAddr;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::MissedTickBehavior;
@@ -31,7 +35,11 @@ pub enum Command {
 pub struct Actor {
     machine: Machine,
     tunnel: Box<dyn Tunnel + Send>,
+    firewall: Box<dyn Firewall>,
+    dns: Box<dyn Dns>,
     watch: Box<dyn SystemWatch>,
+    /// Dernière politique appliquée ; `None` : pas de table.
+    firewall_policy: Option<FirewallPolicy>,
     store: Store,
     profile: Option<TunnelConfig>,
     settings: DaemonSettings,
@@ -66,32 +74,42 @@ fn poll_later() -> Option<tokio::time::Instant> {
     Some(tokio::time::Instant::now() + HANDSHAKE_POLL)
 }
 
+fn core_settings(settings: &DaemonSettings) -> CoreSettings {
+    CoreSettings {
+        kill_switch: settings.kill_switch,
+        auto_reconnect: true,
+        max_attempts: u32::MAX,
+    }
+}
+
+/// Adresse résolue, sinon celle du cache (DNS bloqué par le kill switch).
+fn pick_endpoint(
+    resolved: Result<SocketAddr, PlatformError>,
+    cached: Option<SocketAddr>,
+) -> Option<SocketAddr> {
+    resolved.ok().or(cached)
+}
+
 fn failed(code: ErrorCode, detail: String) -> DaemonToClient {
     DaemonToClient::Failed { code, detail }
 }
 
 impl Actor {
-    pub fn new(
-        store: Store,
-        tunnel: Box<dyn Tunnel + Send>,
-        watch: Box<dyn SystemWatch>,
-        tick: Duration,
-    ) -> Self {
-        let settings = CoreSettings {
-            kill_switch: false,
-            auto_reconnect: true,
-            max_attempts: u32::MAX,
-        };
+    pub fn new(store: Store, system: System, tick: Duration) -> Self {
+        let settings = store.load_settings();
         let (changes, _) = broadcast::channel(64);
         Self {
-            machine: Machine::new(settings, seed()),
+            machine: Machine::new(core_settings(&settings), seed()),
             profile: store.load_profile(),
-            settings: store.load_settings(),
-            last_route: watch.default_route(),
-            last_wall: watch.wall_clock(),
+            settings,
+            last_route: system.watch.default_route(),
+            last_wall: system.watch.wall_clock(),
             last_mono: Instant::now(),
-            tunnel,
-            watch,
+            tunnel: system.tunnel,
+            firewall: system.firewall,
+            dns: system.dns,
+            watch: system.watch,
+            firewall_policy: None,
             store,
             status: Status::Disconnected,
             changes,
@@ -112,10 +130,21 @@ impl Actor {
         if let Err(e) = self.tunnel.down() {
             tracing::warn!(error = %e, "nettoyage initial incomplet");
         }
-        if let (true, Some(cfg)) = (self.settings.auto_connect, &self.profile) {
-            tracing::info!("connexion automatique au démarrage");
-            let server = cfg.server_id();
-            self.handle(Event::Connect { server });
+        // Règles laissées par un arrêt brutal : la protection continue, puis le service
+        // se reconnecte au profil (§8.1).
+        let leftover = self.firewall.is_active();
+        match (&self.profile, leftover || self.settings.auto_connect) {
+            (Some(cfg), true) => {
+                if leftover {
+                    tracing::warn!("reprise après arrêt brutal : kill switch toujours en place");
+                } else {
+                    tracing::info!("connexion automatique au démarrage");
+                }
+                let server = cfg.server_id();
+                self.handle(Event::Connect { server });
+            }
+            _ if leftover => self.clear_firewall(),
+            _ => {}
         }
         let mut tick = tokio::time::interval(self.tick);
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -142,6 +171,7 @@ impl Actor {
         if let Err(e) = self.tunnel.down() {
             tracing::warn!(error = %e, "retrait du tunnel incomplet");
         }
+        self.clear_firewall();
     }
 
     fn command(&mut self, cmd: Command) {
@@ -165,7 +195,9 @@ impl Actor {
             Command::SetSettings(settings, reply) => {
                 let answer = match self.store.save_settings(&settings) {
                     Ok(()) => {
+                        self.machine.set_settings(core_settings(&settings));
                         self.settings = settings;
+                        self.refresh_firewall();
                         DaemonToClient::Done
                     }
                     Err(e) => failed(ErrorCode::Internal, e),
@@ -207,8 +239,29 @@ impl Actor {
         match action {
             Action::BringTunnelUp { .. } => {
                 self.retry_at = None;
-                let cfg = self.profile.as_ref()?;
-                match self.tunnel.up(cfg) {
+                let mut cfg = self.profile.clone()?;
+                let Some(addr) = self.endpoint(&cfg.peer.endpoint) else {
+                    self.detail = cfg.peer.endpoint.to_string();
+                    return Some(Event::Failure {
+                        code: ErrorCode::ServerUnreachable,
+                    });
+                };
+                // Pare-feu avant le tunnel : aucun instant sans protection.
+                if let Err(e) = self.apply_firewall(addr) {
+                    if self.settings.kill_switch {
+                        self.detail = e.to_string();
+                        tracing::error!(error = %e, "kill switch impossible : pas de connexion");
+                        return Some(Event::Fatal {
+                            code: ErrorCode::FirewallUnavailable,
+                        });
+                    }
+                    tracing::warn!(error = %e, "pare-feu indisponible : IPv6 non bloqué");
+                }
+                cfg.peer.endpoint = Endpoint {
+                    host: addr.ip().to_string(),
+                    port: addr.port(),
+                };
+                match self.tunnel.up(&cfg) {
                     Ok(()) => {
                         self.handshake_deadline = Some(Instant::now() + HANDSHAKE_TIMEOUT);
                         self.poll_at = poll_later();
@@ -231,6 +284,7 @@ impl Actor {
                 self.retry_at = None;
                 self.handshake_deadline = None;
                 self.poll_at = None;
+                self.dns.revert(INTERFACE);
                 if let Err(e) = self.tunnel.down() {
                     tracing::warn!(error = %e, "retrait du tunnel incomplet");
                 }
@@ -240,10 +294,9 @@ impl Actor {
                 self.retry_at = Some(tokio::time::Instant::now() + delay);
                 None
             }
-            Action::ApplyFirewall(_) | Action::ClearFirewall => {
-                tracing::warn!("pare-feu demandé : arrive avec le kill switch (étape 3b)");
-                None
-            }
+            // Le pare-feu suit l'état (montée du tunnel, `notify`), y compris sans kill switch
+            // pour l'IPv6 : ces actions du cœur sont déjà couvertes.
+            Action::ApplyFirewall(_) | Action::ClearFirewall => None,
             Action::Notify(state) => {
                 self.notify(state);
                 None
@@ -272,8 +325,70 @@ impl Actor {
             },
         };
         tracing::info!(?status, "état");
+        match &status {
+            Status::Disconnected | Status::Error { .. } => self.clear_firewall(),
+            Status::Connected { .. } => self.set_dns(),
+            _ => {}
+        }
         self.status = status.clone();
         let _ = self.changes.send(status);
+    }
+
+    /// Résout l'endpoint et met le cache à jour ; sinon, l'adresse du cache.
+    fn endpoint(&self, endpoint: &Endpoint) -> Option<SocketAddr> {
+        let resolved = resolve_endpoint(endpoint);
+        if let Ok(addr) = resolved
+            && let Err(e) = self.store.save_endpoint(endpoint, addr)
+        {
+            tracing::warn!(error = %e, "cache de l'endpoint non écrit");
+        }
+        pick_endpoint(resolved, self.store.load_endpoint(endpoint))
+    }
+
+    fn apply_firewall(&mut self, endpoint: SocketAddr) -> Result<(), PlatformError> {
+        let policy = FirewallPolicy {
+            kill_switch: self.settings.kill_switch,
+            interface: INTERFACE.into(),
+            endpoints: vec![endpoint],
+        };
+        if self.firewall_policy.as_ref() != Some(&policy) {
+            self.firewall.apply(&policy)?;
+            self.firewall_policy = Some(policy);
+        }
+        Ok(())
+    }
+
+    /// Réglage du kill switch changé : la table en place prend la nouvelle politique.
+    fn refresh_firewall(&mut self) {
+        let Some(endpoint) = self
+            .firewall_policy
+            .as_ref()
+            .and_then(|p| p.endpoints.first().copied())
+        else {
+            return;
+        };
+        if let Err(e) = self.apply_firewall(endpoint) {
+            tracing::warn!(error = %e, "pare-feu non mis à jour");
+        }
+    }
+
+    fn clear_firewall(&mut self) {
+        if let Err(e) = self.firewall.clear() {
+            tracing::warn!(error = %e, "retrait du pare-feu incomplet");
+        }
+        self.firewall_policy = None;
+    }
+
+    fn set_dns(&mut self) {
+        let servers = self
+            .profile
+            .as_ref()
+            .map(|p| p.interface.dns.clone())
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| DEFAULT_DNS.to_vec());
+        if let Err(e) = self.dns.set(INTERFACE, &servers) {
+            tracing::warn!(error = %e, "DNS du tunnel non configuré (systemd-resolved ?)");
+        }
     }
 
     /// Le tunnel est neuf : tout handshake compte.
@@ -335,5 +450,23 @@ impl Actor {
         };
         tracing::info!(?event, "reconnexion");
         self.handle(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_endpoint;
+    use ankou_platform::PlatformError;
+
+    #[test]
+    fn cached_endpoint_used_when_resolution_fails() {
+        let (r, c) = (
+            "203.0.113.7:51820".parse().unwrap(),
+            "198.51.100.9:51820".parse().unwrap(),
+        );
+        let err = || Err(PlatformError::Endpoint("nom.invalid".into()));
+        assert_eq!(pick_endpoint(err(), Some(c)), Some(c));
+        assert_eq!(pick_endpoint(Ok(r), Some(c)), Some(r));
+        assert_eq!(pick_endpoint(err(), None), None);
     }
 }
