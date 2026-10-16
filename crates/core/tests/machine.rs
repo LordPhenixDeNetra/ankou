@@ -230,3 +230,15 @@ fn fatal_with_kill_switch_blocks() {
         .is_empty()
     );
 }
+
+#[test]
+fn set_settings_enables_kill_switch_for_next_connect() {
+    let mut m = Machine::new(settings(false), 7);
+    m.set_settings(settings(true));
+    assert_eq!(m.state(), &State::Disconnected);
+    let a = m.handle(Event::Connect { server: srv() }, Instant::now());
+    assert!(
+        a.contains(&Action::ApplyFirewall(Policy::KillSwitch { server: srv() })),
+        "{a:?}"
+    );
+}

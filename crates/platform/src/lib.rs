@@ -1,7 +1,9 @@
 //! Accès système d'aNkou derrière des traits (spec §4.1.3, §6.2).
 
+mod dns;
 #[cfg(feature = "fake")]
 pub mod fake;
+mod firewall;
 #[cfg(target_os = "linux")]
 mod linux;
 mod watch;
@@ -10,6 +12,8 @@ use ankou_proto::{Endpoint, ErrorCode, TunnelConfig};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::SystemTime;
 
+pub use dns::{Dns, default_dns, resolvectl_commands};
+pub use firewall::{Firewall, FirewallPolicy, default_firewall, nft_ruleset};
 pub use watch::{SystemWatch, default_watch, parse_default_route};
 
 /// Nom de l'interface WireGuard du client.

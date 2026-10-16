@@ -118,3 +118,35 @@ fn error_codes_are_stable() {
         toml::Value::String("E_SERVER_UNREACHABLE".into())
     );
 }
+
+#[test]
+fn dns_is_optional_and_roundtrips() {
+    let c: TunnelConfig = toml::from_str(&sample()).unwrap();
+    assert!(c.interface.dns.is_empty());
+    assert!(!toml::to_string(&c).unwrap().contains("dns"));
+    let with = sample().replace(
+        "address = [\"10.8.0.2/32\"]",
+        "address = [\"10.8.0.2/32\"]\ndns = [\"1.1.1.1\"]",
+    );
+    let c: TunnelConfig = toml::from_str(&with).unwrap();
+    assert_eq!(
+        c.interface.dns,
+        vec!["1.1.1.1".parse::<std::net::IpAddr>().unwrap()]
+    );
+    let again: TunnelConfig = toml::from_str(&toml::to_string(&c).unwrap()).unwrap();
+    assert_eq!(again, c);
+    assert_eq!(ankou_proto::DEFAULT_DNS.len(), 2);
+    assert_eq!(ankou_proto::DEFAULT_DNS[0].to_string(), "9.9.9.9");
+}
+
+#[test]
+fn kill_switch_is_on_by_default() {
+    use ankou_proto::ipc::DaemonSettings;
+    assert!(DaemonSettings::default().kill_switch);
+    let s: DaemonSettings = toml::from_str("auto_connect = true").unwrap();
+    assert!(s.auto_connect && s.kill_switch);
+    assert_eq!(
+        ErrorCode::FirewallUnavailable.as_str(),
+        "E_FIREWALL_UNAVAILABLE"
+    );
+}

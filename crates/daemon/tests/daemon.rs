@@ -231,7 +231,10 @@ async fn auto_connect_at_start() {
     let dir = tempfile::tempdir().unwrap();
     let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
     let mut c = d.client().await;
-    let on = DaemonSettings { auto_connect: true };
+    let on = DaemonSettings {
+        auto_connect: true,
+        ..DaemonSettings::default()
+    };
     assert_eq!(
         ask(
             &mut c,

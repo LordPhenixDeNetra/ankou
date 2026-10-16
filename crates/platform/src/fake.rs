@@ -1,8 +1,11 @@
 //! Faux tunnel et fausse surveillance pour les tests : poignées partagées, pilotables
 //! depuis le test pendant que le code testé les possède.
 
-use crate::{INTERFACE, PlatformError, SystemWatch, Tunnel, TunnelStats};
+use crate::{
+    Dns, Firewall, FirewallPolicy, INTERFACE, PlatformError, SystemWatch, Tunnel, TunnelStats,
+};
 use ankou_proto::TunnelConfig;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
@@ -124,5 +127,79 @@ impl SystemWatch for FakeWatch {
     }
     fn wall_clock(&self) -> SystemTime {
         SystemTime::now() + lock(&self.0).offset
+    }
+}
+
+#[derive(Default)]
+struct FirewallState {
+    active: Option<FirewallPolicy>,
+    fail: bool,
+}
+
+#[derive(Clone, Default)]
+pub struct FakeFirewall(Arc<Mutex<FirewallState>>);
+
+impl FakeFirewall {
+    pub fn active(&self) -> Option<FirewallPolicy> {
+        lock(&self.0).active.clone()
+    }
+    /// `true` : `apply` échoue, comme sans `nft`.
+    pub fn fail(&self, on: bool) {
+        lock(&self.0).fail = on;
+    }
+    /// Règles laissées par un arrêt brutal du service.
+    pub fn set_leftover(&self, p: FirewallPolicy) {
+        lock(&self.0).active = Some(p);
+    }
+}
+
+impl Firewall for FakeFirewall {
+    fn apply(&mut self, policy: &FirewallPolicy) -> Result<(), PlatformError> {
+        let mut s = lock(&self.0);
+        if s.fail {
+            return Err(PlatformError::Unavailable("nft introuvable".into()));
+        }
+        s.active = Some(policy.clone());
+        Ok(())
+    }
+    fn clear(&mut self) -> Result<(), PlatformError> {
+        lock(&self.0).active = None;
+        Ok(())
+    }
+    fn is_active(&self) -> bool {
+        lock(&self.0).active.is_some()
+    }
+}
+
+#[derive(Default)]
+struct DnsState {
+    current: Option<(String, Vec<IpAddr>)>,
+    fail: bool,
+}
+
+#[derive(Clone, Default)]
+pub struct FakeDns(Arc<Mutex<DnsState>>);
+
+impl FakeDns {
+    pub fn current(&self) -> Option<(String, Vec<IpAddr>)> {
+        lock(&self.0).current.clone()
+    }
+    /// `true` : `set` échoue, comme sans systemd-resolved.
+    pub fn fail(&self, on: bool) {
+        lock(&self.0).fail = on;
+    }
+}
+
+impl Dns for FakeDns {
+    fn set(&mut self, interface: &str, servers: &[IpAddr]) -> Result<(), PlatformError> {
+        let mut s = lock(&self.0);
+        if s.fail {
+            return Err(PlatformError::Unavailable("resolvectl introuvable".into()));
+        }
+        s.current = Some((interface.to_owned(), servers.to_vec()));
+        Ok(())
+    }
+    fn revert(&mut self, _interface: &str) {
+        lock(&self.0).current = None;
     }
 }

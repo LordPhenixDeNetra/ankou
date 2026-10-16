@@ -11,6 +11,7 @@ error-tunnel-permission = The ankoud service lacks administrator rights: it must
 error-tunnel-unavailable = WireGuard is not available on this system ({ $detail }).
 error-server-unreachable = The server { $server } is not answering.
 error-profile-missing = No saved configuration: run ankou-cli connect --config <file>.
+error-firewall-unavailable = The firewall (nftables) is unavailable, so the kill switch refuses to connect: sudo apt install nftables ({ $detail })
 error-internal = Internal error: { $detail }
 admin-invite-created = Invitation created (valid until { $expires }): { $code }
 admin-server-added = Server { $name } added. Node token, shown only once: { $token }

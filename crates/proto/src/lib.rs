@@ -16,8 +16,8 @@ mod keys;
 pub mod node;
 
 pub use config::{
-    DEFAULT_KEEPALIVE, Endpoint, EndpointError, InterfaceSection, PeerSection, ServerId,
-    TunnelConfig,
+    DEFAULT_DNS, DEFAULT_KEEPALIVE, Endpoint, EndpointError, InterfaceSection, PeerSection,
+    ServerId, TunnelConfig,
 };
 pub use error::ErrorCode;
 pub use keys::{KeyError, PrivateKey, PublicKey};
