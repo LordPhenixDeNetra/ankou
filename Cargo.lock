@@ -115,6 +115,7 @@ dependencies = [
  "lpdnsoft-i18n",
  "lpdnsoft-log",
  "rpassword",
+ "serde_json",
  "tempfile",
  "tokio",
  "toml",

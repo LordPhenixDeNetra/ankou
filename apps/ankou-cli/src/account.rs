@@ -60,6 +60,23 @@ fn save(loc: &Localizer, client: &ApiClient) -> Outcome {
     }
 }
 
+/// Dernière liste des serveurs, à côté de la session : sert quand l'API est injoignable
+/// (serveur courant hors service, kill switch), justement quand on veut en changer.
+fn servers_cache(loc: &Localizer) -> Result<PathBuf, Shown> {
+    Ok(path(loc)?.with_file_name("servers.json"))
+}
+
+fn save_servers(loc: &Localizer, servers: &[ServerInfo]) {
+    if let (Ok(p), Ok(json)) = (servers_cache(loc), serde_json::to_vec(servers)) {
+        let _ = std::fs::write(p, json);
+    }
+}
+
+fn cached_servers(loc: &Localizer) -> Option<Vec<ServerInfo>> {
+    let bytes = std::fs::read(servers_cache(loc).ok()?).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 /// Client prêt à l'emploi depuis la session enregistrée.
 fn saved_client(loc: &Localizer) -> Result<ApiClient, Shown> {
     let session = Session::load(&path(loc)?)
@@ -116,7 +133,9 @@ pub async fn servers(loc: &Localizer) -> Outcome {
     let mut client = saved_client(loc)?;
     let result = client.servers().await;
     save(loc, &client)?;
-    for s in result.map_err(|e| client_error(loc, e))? {
+    let servers = result.map_err(|e| client_error(loc, e))?;
+    save_servers(loc, &servers);
+    for s in servers {
         let endpoint = s.endpoint.to_string();
         println!(
             "{}",
@@ -251,7 +270,20 @@ pub async fn fastest_candidates(
     let mut client = saved_client(loc).map_err(|Shown(m)| m)?;
     let result = client.servers().await;
     save(loc, &client).map_err(|Shown(m)| m)?;
-    let servers = result.map_err(|e| client_error(loc, e).0)?;
+    let servers = match result {
+        Ok(servers) => {
+            save_servers(loc, &servers);
+            servers
+        }
+        Err(ClientError::Network(detail)) => match cached_servers(loc) {
+            Some(servers) => {
+                eprintln!("{}", t!(loc, "cli-servers-cached"));
+                servers
+            }
+            None => return Err(client_error(loc, ClientError::Network(detail)).0),
+        },
+        Err(e) => return Err(client_error(loc, e).0),
+    };
     let candidates = filter_servers(servers, country, tag);
     if candidates.is_empty() {
         return Err(t!(

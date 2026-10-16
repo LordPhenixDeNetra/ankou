@@ -215,3 +215,33 @@ fn country_requires_fastest() {
         .assert()
         .code(2);
 }
+
+/// API injoignable (tunnel mort, kill switch) : la dernière liste des serveurs sert encore.
+#[cfg(unix)]
+#[test]
+fn fastest_uses_cached_servers_when_api_unreachable() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session.toml");
+    std::fs::write(
+        &session,
+        "api_url = \"http://127.0.0.1:9\"\nrefresh_token = \"r\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("servers.json"),
+        r#"[{"id":"00000000-0000-0000-0000-000000000000","name":"vps1","country":"FR","city":"Paris",
+            "endpoint":"192.0.2.1:51820","public_key":"xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=","tags":[]}]"#,
+    )
+    .unwrap();
+    // L'API ne répond pas, la liste en cache est prise : on arrive jusqu'au service (absent).
+    let a = cli_without_daemon(dir.path())
+        .env("ANKOU_SESSION_FILE", &session)
+        .args(["connect", "--lang", "en", "--fastest"])
+        .assert()
+        .code(1);
+    assert!(
+        stderr(&a).contains("systemctl enable --now ankoud"),
+        "{}",
+        stderr(&a)
+    );
+}

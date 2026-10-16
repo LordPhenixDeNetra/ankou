@@ -54,3 +54,4 @@ cli-blocked-hint = Trafic bloqué par le kill switch ; ankou-cli disconnect pour
 cli-fastest-chosen = Serveur le plus rapide : { $server } ({ $rtt } ms).
 cli-no-matching-server = Aucun serveur ne correspond (pays { $country }, étiquette { $tag }). Liste : ankou-cli servers
 cli-fastest-none = Aucun serveur n'a répondu à la mesure ; la connexion en cours est inchangée.
+cli-servers-cached = API injoignable : dernière liste de serveurs connue utilisée.
