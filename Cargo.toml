@@ -24,10 +24,18 @@ ankou-platform = { path = "crates/platform", version = "0.1.0" }
 ankou-proto = { path = "crates/proto", version = "0.1.0" }
 ankou-server-domain = { path = "crates/server-domain", version = "0.1.0" }
 ankou-server-store = { path = "crates/server-store", version = "0.1.0" }
+ankou-api = { path = "apps/ankou-api", version = "0.1.0" }
 # Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
 lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }
 lpdnsoft-log = { path = "../lpdnsoft-libs/crates/log", version = "0.1.0" }
 anyhow = "1"
+argon2 = "0.6"
+axum = "0.8"
+getrandom = "0.4"
+pasetors = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tower_governor = "0.8"
+utoipa = { version = "6", features = ["uuid", "time"] }
 clap = { version = "4", features = ["derive"] }
 assert_cmd = "2"
 base64 = "0.23"
@@ -46,3 +54,7 @@ sha2 = "0.10"
 time = { version = "0.3", features = ["serde-well-known", "macros"] }
 uuid = { version = "1", features = ["v7", "serde"] }
 x25519-dalek = { version = "3", features = ["static_secrets", "getrandom"] }
+
+# Argon2 est très lent sans optimisation : tests et développement restent rapides.
+[profile.dev.package.argon2]
+opt-level = 3
