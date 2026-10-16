@@ -1,0 +1,6 @@
+# Clés WireGuard d'exemple utilisées par les tests (dont le vecteur de la page de manuel wg(8)) :
+# elles ne protègent rien et ne doivent pas déclencher d'alerte de secret.
+version: 2
+secret:
+  ignored_paths:
+    - "**/tests/**"

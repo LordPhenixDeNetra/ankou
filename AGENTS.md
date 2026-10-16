@@ -17,7 +17,7 @@ LPDNSoft/
 
 - `crates/proto` — `ankou-proto` : constantes, `TunnelConfig` (fichier TOML du client), clés WireGuard (`PrivateKey` jamais affichée), `ErrorCode` stables.
 - `crates/core` — `ankou-core` : machine à états de connexion (spec §6.4), **aucune E/S** ; backoff 1 s → 30 s ; invariant kill switch testé par `proptest`.
-- `crates/platform` — `ankou-platform` : trait `Tunnel`, implémentation Linux noyau (`defguard_wireguard_rs`, ADR 0002), `FakeTunnel` (feature `fake`).
+- `crates/platform` — `ankou-platform` : trait `Tunnel`, implémentation Linux noyau (configuration par `defguard_wireguard_rs`, routage par `ip` comme `wg-quick`, ADR 0002), `FakeTunnel` (feature `fake`).
 - `apps/ankou-cli` — `version`, `init --out <fichier>`, `connect --config <fichier> [--retries n]`, option globale `--lang en|fr`. `src/run.rs` exécute les actions du cœur (provisoire : déménage dans `ankou-daemon` à l'étape 3).
 - `locales/{en,fr}/ankou.ftl` — traductions Fluent, embarquées à la compilation.
 - `xtask` — contrôles.

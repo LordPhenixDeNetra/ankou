@@ -1,4 +1,4 @@
-//! WireGuard noyau Linux par netlink (ADR 0002).
+//! WireGuard noyau Linux : configuration par netlink, routage par `ip` comme `wg-quick` (ADR 0002).
 
 use crate::{PlatformError, Tunnel, TunnelStats, resolve_endpoint};
 use ankou_proto::TunnelConfig;
@@ -47,11 +47,12 @@ fn map_err(e: WireguardInterfaceError) -> PlatformError {
     }
 }
 
+/// Table de routage et marque des paquets WireGuard (mêmes valeurs que `wg-quick`).
+const FWMARK: u32 = 51820;
+
 impl Tunnel for KernelTunnel {
     fn up(&mut self, cfg: &TunnelConfig) -> Result<(), PlatformError> {
-        if self.exists() {
-            self.down()?;
-        }
+        self.down()?;
         let endpoint = resolve_endpoint(&cfg.peer.endpoint)?;
         let mut peer = Peer::new(Key::new(*cfg.peer.public_key.as_bytes()));
         peer.endpoint = Some(endpoint);
@@ -62,9 +63,11 @@ impl Tunnel for KernelTunnel {
             prvkey: cfg.interface.private_key.to_base64(),
             addresses: cfg.interface.address.iter().map(mask).collect(),
             port: 0,
-            peers: vec![peer.clone()],
+            peers: vec![peer],
             mtu: None,
-            fwmark: None,
+            // Posé dès la configuration : la bibliothèque recréerait sinon le pair plus tard,
+            // ce qui perd le handshake en cours.
+            fwmark: Some(FWMARK),
         };
         if !has_net_admin() {
             return Err(PlatformError::Permission);
@@ -74,50 +77,31 @@ impl Tunnel for KernelTunnel {
         // un échec veut dire que le module WireGuard manque.
         api.create_interface()
             .map_err(|e| PlatformError::Unavailable(e.to_string()))?;
-        let endpoint_route = format!(
-            "{}/{}",
-            endpoint.ip(),
-            if endpoint.is_ipv4() { 32 } else { 128 }
-        );
-        let route_existed = !ip(&["route", "show", &endpoint_route])
-            .unwrap_or_default()
-            .is_empty();
-        let configured = api
-            .configure_interface(&config)
-            .and_then(|()| api.configure_peer_routing(std::slice::from_ref(&peer)));
-        if let Err(e) = configured {
-            // Ne rien laisser derrière en cas d'échec partiel.
+        if let Err(e) = api.configure_interface(&config) {
             let _ = self.down();
             return Err(map_err(e));
         }
-        // `configure_peer_routing` ajoute une route hôte vers l'endpoint dans la table main :
-        // inutile avec le routage par fwmark, trou noir sans passerelle, et jamais retirée.
-        if !route_existed {
-            let _ = ip(&["route", "del", &endpoint_route]);
-        }
-        // Le premier handshake part pendant la configuration, avant le routage final (et la
-        // bibliothèque recrée le pair en posant le fwmark) ; WireGuard ne réessaie qu'après 5 s.
-        // Repasser le keepalive de 0 à sa valeur fait envoyer tout de suite une nouvelle initiation.
-        let keepalive = cfg.peer.persistent_keepalive;
-        for interval in [0, keepalive] {
-            peer.persistent_keepalive_interval = Some(interval);
-            if let Err(e) = api.configure_peer(&peer) {
+        // Routage à la `wg-quick` (sa `configure_peer_routing` recrée le pair et laisse une
+        // route vers l'endpoint dans la table main).
+        for command in routing_commands(&cfg.peer.allowed_ips, &self.ifname) {
+            if let Err(detail) = ip(&command.split(' ').collect::<Vec<_>>()) {
                 let _ = self.down();
-                return Err(map_err(e));
+                return Err(PlatformError::Backend(format!("ip {command} : {detail}")));
             }
         }
+        // Les paquets marqués doivent passer le filtrage par chemin inverse.
+        let _ = std::fs::write("/proc/sys/net/ipv4/conf/all/src_valid_mark", "1");
         Ok(())
     }
 
+    /// Comme `wg-quick down` : règles retirées, puis interface (et ses routes) supprimée.
     fn down(&mut self) -> Result<(), PlatformError> {
-        if !self.exists() {
-            return Ok(());
+        for command in cleanup_commands() {
+            let _ = ip(&command.split(' ').collect::<Vec<_>>());
         }
-        // `remove_interface` retire les règles fwmark puis la config DNS : sans
-        // systemd-resolved ni resolvconf, il échoue avant de supprimer l'interface.
-        if let Err(e) = self.api()?.remove_interface() {
-            tracing::debug!(error = %e, "remove_interface incomplet, suppression directe");
-            ip(&["link", "del", &self.ifname]).map_err(|_| map_err(e))?;
+        if self.exists() {
+            ip(&["link", "del", &self.ifname])
+                .map_err(|detail| PlatformError::Backend(format!("ip link del : {detail}")))?;
         }
         Ok(())
     }
@@ -134,18 +118,52 @@ impl Tunnel for KernelTunnel {
     }
 }
 
-/// Lance `ip` (iproute2) ; `Ok(stdout)` si la commande réussit.
-// ponytail: deux opérations de nettoyage par `ip` au lieu de messages netlink écrits à la main ;
-// à remplacer quand la bibliothèque corrigera ces cas (ou par netlink-packet-route).
-fn ip(args: &[&str]) -> Result<String, ()> {
+/// Arguments de `ip` pour router `allowed_ips` dans le tunnel. Une route par défaut d'une
+/// famille passe par la table `FWMARK` et deux règles, exactement comme `wg-quick`.
+fn routing_commands(allowed_ips: &[ipnet::IpNet], ifname: &str) -> Vec<String> {
+    let mut commands = Vec::new();
+    for net in allowed_ips {
+        let family = if net.addr().is_ipv4() { "-4" } else { "-6" };
+        if net.prefix_len() == 0 {
+            commands.push(format!(
+                "{family} route add {net} dev {ifname} table {FWMARK}"
+            ));
+            commands.push(format!(
+                "{family} rule add not fwmark {FWMARK} table {FWMARK}"
+            ));
+            commands.push(format!(
+                "{family} rule add table main suppress_prefixlength 0"
+            ));
+        } else {
+            commands.push(format!("{family} route add {net} dev {ifname}"));
+        }
+    }
+    commands
+}
+
+/// Retrait des règles posées par `routing_commands` (erreurs ignorées : règle absente).
+fn cleanup_commands() -> Vec<String> {
+    ["-4", "-6"]
+        .iter()
+        .flat_map(|family| {
+            [
+                format!("{family} rule del not fwmark {FWMARK} table {FWMARK}"),
+                format!("{family} rule del table main suppress_prefixlength 0"),
+            ]
+        })
+        .collect()
+}
+
+/// Lance `ip` (iproute2), comme `wg-quick` ; `Err(stderr)` si la commande échoue.
+fn ip(args: &[&str]) -> Result<String, String> {
     let out = std::process::Command::new("ip")
         .args(args)
         .output()
-        .map_err(|_| ())?;
+        .map_err(|e| format!("ip introuvable : {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
-        Err(())
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_owned())
     }
 }
 
@@ -166,7 +184,49 @@ fn cap_eff_has_net_admin(status: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::cap_eff_has_net_admin;
+    use super::{cap_eff_has_net_admin, cleanup_commands, routing_commands};
+
+    fn nets(list: &[&str]) -> Vec<ipnet::IpNet> {
+        list.iter().map(|n| n.parse().unwrap()).collect()
+    }
+
+    #[test]
+    fn full_tunnel_routing_matches_wg_quick() {
+        assert_eq!(
+            routing_commands(&nets(&["0.0.0.0/0"]), "ankou0"),
+            [
+                "-4 route add 0.0.0.0/0 dev ankou0 table 51820",
+                "-4 rule add not fwmark 51820 table 51820",
+                "-4 rule add table main suppress_prefixlength 0",
+            ]
+        );
+    }
+
+    #[test]
+    fn split_and_ipv6_routing() {
+        assert_eq!(
+            routing_commands(&nets(&["10.99.0.0/24", "::/0"]), "ankou0"),
+            [
+                "-4 route add 10.99.0.0/24 dev ankou0",
+                "-6 route add ::/0 dev ankou0 table 51820",
+                "-6 rule add not fwmark 51820 table 51820",
+                "-6 rule add table main suppress_prefixlength 0",
+            ]
+        );
+    }
+
+    #[test]
+    fn cleanup_removes_both_families_rules() {
+        assert_eq!(
+            cleanup_commands(),
+            [
+                "-4 rule del not fwmark 51820 table 51820",
+                "-4 rule del table main suppress_prefixlength 0",
+                "-6 rule del not fwmark 51820 table 51820",
+                "-6 rule del table main suppress_prefixlength 0",
+            ]
+        );
+    }
 
     #[test]
     fn reads_net_admin_capability() {
