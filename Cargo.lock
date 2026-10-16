@@ -420,7 +420,9 @@ name = "ankou-ui-egui"
 version = "0.1.0"
 dependencies = [
  "ankou-api-client",
+ "ankou-daemon",
  "ankou-ipc",
+ "ankou-platform",
  "ankou-proto",
  "eframe",
  "egui_kittest",
@@ -428,8 +430,10 @@ dependencies = [
  "lpdnsoft-settings",
  "lpdnsoft-ui",
  "serde",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "toml",
  "tracing",
 ]
 

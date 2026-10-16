@@ -1,5 +1,6 @@
 //! Interface graphique d'aNkou (spec §6.9) : une télécommande du service `ankoud`.
 
+pub mod bridge;
 pub mod model;
 
 #[derive(Debug, thiserror::Error)]
