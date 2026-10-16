@@ -1,0 +1,28 @@
+[workspace]
+members = ["crates/*", "apps/*", "xtask"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/LordPhenixDeNetra/ankou"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+
+[workspace.dependencies]
+ankou-proto = { path = "crates/proto", version = "0.1.0" }
+# Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
+lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }
+lpdnsoft-log = { path = "../lpdnsoft-libs/crates/log", version = "0.1.0" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+assert_cmd = "2"

@@ -1,0 +1,20 @@
+[package]
+name = "ankou-cli"
+description = "Client aNkou en ligne de commande."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ankou-proto.workspace = true
+lpdnsoft-i18n.workspace = true
+lpdnsoft-log.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+
+[lints]
+workspace = true
