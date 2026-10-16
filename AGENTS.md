@@ -13,10 +13,12 @@ LPDNSoft/
 └── ankou/          dépend de ../lpdnsoft-libs/crates/<nom>
 ```
 
-## Structure (étape 0)
+## Structure (étape 1)
 
-- `crates/proto` — `ankou-proto` : `APP_ID`, `APP_NAME`, `PROTOCOL_VERSION`, `VERSION`.
-- `apps/ankou-cli` — `ankou-cli version [--lang en|fr]`.
+- `crates/proto` — `ankou-proto` : constantes, `TunnelConfig` (fichier TOML du client), clés WireGuard (`PrivateKey` jamais affichée), `ErrorCode` stables.
+- `crates/core` — `ankou-core` : machine à états de connexion (spec §6.4), **aucune E/S** ; backoff 1 s → 30 s ; invariant kill switch testé par `proptest`.
+- `crates/platform` — `ankou-platform` : trait `Tunnel`, implémentation Linux noyau (`defguard_wireguard_rs`, ADR 0002), `FakeTunnel` (feature `fake`).
+- `apps/ankou-cli` — `version`, `init --out <fichier>`, `connect --config <fichier> [--retries n]`, option globale `--lang en|fr`. `src/run.rs` exécute les actions du cœur (provisoire : déménage dans `ankou-daemon` à l'étape 3).
 - `locales/{en,fr}/ankou.ftl` — traductions Fluent, embarquées à la compilation.
 - `xtask` — contrôles.
 
@@ -26,7 +28,15 @@ LPDNSoft/
 cargo xtask ci   # i18n complet, fmt --check, clippy -D warnings, tests, cargo deny check
 ```
 
-Prérequis : Rust stable ≥ 1.90, `cargo install cargo-deny --locked`.
+Prérequis : Rust stable ≥ 1.91, `cargo install cargo-deny --locked`.
+
+Bout en bout Linux (root, `ip`, `wg`, module `wireguard` ; aussi lancé par le job CI `e2e-linux`) :
+
+```sh
+sudo -E env "PATH=$PATH" cargo test -p ankou-cli --test e2e_linux -- --ignored --test-threads=1
+```
+
+Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md`.
 
 ## Règles
 
