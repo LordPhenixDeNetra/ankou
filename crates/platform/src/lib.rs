@@ -6,6 +6,7 @@ pub mod fake;
 mod firewall;
 #[cfg(target_os = "linux")]
 mod linux;
+mod probe;
 mod watch;
 
 use ankou_proto::{Endpoint, ErrorCode, TunnelConfig};
@@ -14,6 +15,7 @@ use std::time::SystemTime;
 
 pub use dns::{Dns, default_dns, resolvectl_commands};
 pub use firewall::{Firewall, FirewallPolicy, default_firewall, nft_ruleset};
+pub use probe::{Prober, default_prober};
 pub use watch::{SystemWatch, default_watch, parse_default_route};
 
 /// Nom de l'interface WireGuard du client.

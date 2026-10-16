@@ -107,6 +107,11 @@ async fn answer(
         ClientToDaemon::Connect { config } => {
             ask(commands, |tx| Command::Connect(config, tx)).await?
         }
+        // Provisoire : la sélection arrive avec la tâche suivante.
+        ClientToDaemon::ConnectFastest { .. } => DaemonToClient::Failed {
+            code: ankou_proto::ErrorCode::Internal,
+            detail: "non disponible".into(),
+        },
         ClientToDaemon::Disconnect => ask(commands, Command::Disconnect).await?,
         ClientToDaemon::GetSettings => DaemonToClient::Settings {
             settings: ask(commands, Command::GetSettings).await?,

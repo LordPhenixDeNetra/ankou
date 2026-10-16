@@ -1,12 +1,13 @@
 //! WireGuard noyau Linux : configuration par netlink, routage par `ip` comme `wg-quick` (ADR 0002).
 
-use crate::{PlatformError, Tunnel, TunnelStats, resolve_endpoint};
-use ankou_proto::TunnelConfig;
+use crate::{PlatformError, Prober, Tunnel, TunnelStats, resolve_endpoint};
+use ankou_proto::{InterfaceSection, PeerSection, TunnelConfig};
 use defguard_wireguard_rs::error::WireguardInterfaceError;
 use defguard_wireguard_rs::key::Key;
 use defguard_wireguard_rs::net::IpAddrMask;
 use defguard_wireguard_rs::peer::Peer;
 use defguard_wireguard_rs::{InterfaceConfiguration, Kernel, WGApi, WireguardInterfaceApi};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 pub struct KernelTunnel {
     ifname: String,
@@ -115,6 +116,85 @@ impl Tunnel for KernelTunnel {
             stats.last_handshake = stats.last_handshake.max(peer.last_handshake);
         }
         Ok(stats)
+    }
+}
+
+/// Préfixe des interfaces temporaires de mesure.
+const PROBE_PREFIX: &str = "ankoup";
+
+/// Mesure par handshake : interface sans adresse ni route, marquée `FWMARK` (ses paquets
+/// sortent hors tunnel), pair en keepalive 1 s pour lancer le handshake tout de suite.
+pub struct KernelProber;
+
+impl KernelProber {
+    fn once(
+        name: &str,
+        interface: &InterfaceSection,
+        peer: &PeerSection,
+        timeout: Duration,
+    ) -> Option<Duration> {
+        let mut p = Peer::new(Key::new(*peer.public_key.as_bytes()));
+        p.endpoint = Some(resolve_endpoint(&peer.endpoint).ok()?);
+        p.persistent_keepalive_interval = Some(1);
+        let config = InterfaceConfiguration {
+            name: name.to_owned(),
+            prvkey: interface.private_key.to_base64(),
+            addresses: Vec::new(),
+            port: 0,
+            peers: vec![p],
+            mtu: None,
+            fwmark: Some(FWMARK),
+        };
+        let mut api = WGApi::<Kernel>::new(name.to_owned()).ok()?;
+        let _ = ip(&["link", "del", name]);
+        let measured = (|| {
+            api.create_interface().ok()?;
+            api.configure_interface(&config).ok()?;
+            let start = Instant::now();
+            while start.elapsed() < timeout {
+                let seen = api.read_interface_data().ok().is_some_and(|host| {
+                    host.peers
+                        .values()
+                        .any(|p| p.last_handshake.is_some_and(|t| t > UNIX_EPOCH))
+                });
+                if seen {
+                    return Some(start.elapsed());
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            None
+        })();
+        // Toujours supprimée, même après une erreur.
+        let _ = ip(&["link", "del", name]);
+        measured
+    }
+}
+
+impl Prober for KernelProber {
+    fn probe(
+        &self,
+        slot: usize,
+        interface: &InterfaceSection,
+        peer: &PeerSection,
+        tries: u32,
+        timeout: Duration,
+    ) -> Vec<Duration> {
+        let name = format!("{PROBE_PREFIX}{slot}");
+        (0..tries)
+            .filter_map(|_| Self::once(&name, interface, peer, timeout))
+            .collect()
+    }
+
+    fn cleanup(&self) {
+        let Ok(entries) = std::fs::read_dir("/sys/class/net") else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with(PROBE_PREFIX) {
+                let _ = ip(&["link", "del", &name]);
+            }
+        }
     }
 }
 

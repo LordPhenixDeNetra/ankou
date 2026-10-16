@@ -86,3 +86,24 @@ fn resolve_endpoint_accepts_literal_ip() {
         "127.0.0.1:51820".parse().unwrap()
     );
 }
+
+#[test]
+fn fake_prober_answers_per_endpoint() {
+    use ankou_platform::Prober;
+    use ankou_platform::fake::FakeProber;
+    let p = FakeProber::default();
+    p.set("1.2.3.4:51820", vec![Duration::from_millis(10)]);
+    let cfg = config();
+    let mut peer = cfg.peer.clone();
+    peer.endpoint = "1.2.3.4:51820".parse().unwrap();
+    let t = Duration::from_secs(1);
+    assert_eq!(
+        p.probe(0, &cfg.interface, &peer, 3, t),
+        vec![Duration::from_millis(10)]
+    );
+    peer.endpoint = "5.6.7.8:51820".parse().unwrap();
+    assert!(p.probe(1, &cfg.interface, &peer, 3, t).is_empty());
+    assert_eq!(p.probed(), ["1.2.3.4:51820", "5.6.7.8:51820"]);
+    p.cleanup();
+    assert_eq!(p.cleanups(), 1);
+}
