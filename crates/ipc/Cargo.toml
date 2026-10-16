@@ -1,0 +1,21 @@
+[package]
+name = "ankou-ipc"
+description = "Transport local d'aNkou : socket, trames u32 + JSON, poignée de main versionnée."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ankou-proto.workspace = true
+interprocess.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
