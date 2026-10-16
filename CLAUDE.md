@@ -13,11 +13,15 @@ LPDNSoft/
 └── ankou/          dépend de ../lpdnsoft-libs/crates/<nom>
 ```
 
-## Structure (étape 1)
+## Structure (étapes 1 et 2a)
 
 - `crates/proto` — `ankou-proto` : constantes, `TunnelConfig` (fichier TOML du client), clés WireGuard (`PrivateKey` jamais affichée), `ErrorCode` stables.
 - `crates/core` — `ankou-core` : machine à états de connexion (spec §6.4), **aucune E/S** ; backoff 1 s → 30 s ; invariant kill switch testé par `proptest`.
 - `crates/platform` — `ankou-platform` : trait `Tunnel`, implémentation Linux noyau (configuration par `defguard_wireguard_rs`, routage par `ip` comme `wg-quick`, ADR 0002), `FakeTunnel` (feature `fake`).
+- `crates/server-domain` — `ankou-server-domain` : règles pures du serveur (e-mail, mot de passe ≥ 12 caractères, invitations, limite d'appareils, attribution d'adresses dans `10.8.0.0/16`, `hash_secret`). Aucune E/S.
+- `crates/server-store` — `ankou-server-store` : **seule** couche qui écrit du SQL (PostgreSQL, sqlx, migrations dans `migrations/`, `MIGRATOR`).
+- `apps/ankou-api` — API REST `/v1` (axum) : bibliothèque `router()` + `main` (`serve`, `genkey`). Auth : ADR 0003. OpenAPI : `GET /v1/openapi.json`.
+- `apps/ankou-admin` — invitations, serveurs (jeton de node), utilisateurs, appareils ; agit directement sur la base.
 - `apps/ankou-cli` — `version`, `init --out <fichier>`, `connect --config <fichier> [--retries n]`, option globale `--lang en|fr`. `src/run.rs` exécute les actions du cœur (provisoire : déménage dans `ankou-daemon` à l'étape 3).
 - `locales/{en,fr}/ankou.ftl` — traductions Fluent, embarquées à la compilation.
 - `xtask` — contrôles.
@@ -37,6 +41,16 @@ sudo -E env "PATH=$PATH" cargo test -p ankou-cli --test e2e_linux -- --ignored -
 ```
 
 Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md`.
+
+## Base de données (serveur)
+
+- Les tests qui ont besoin de PostgreSQL sont `#[ignore = "PostgreSQL requis"]` + `#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]` ; ils tournent dans le job CI `server-db` ou en local :
+  ```sh
+  export DATABASE_URL=postgres://ankou:ankou@127.0.0.1/ankou_dev
+  cargo test -p ankou-server-store -p ankou-api -p ankou-admin -- --ignored
+  ```
+- Les requêtes `sqlx::query!` sont vérifiées hors ligne grâce à `.sqlx/` (`SQLX_OFFLINE=true` dans `.cargo/config.toml`). Après toute requête ou migration modifiée : `cargo sqlx migrate run --source crates/server-store/migrations` puis `SQLX_OFFLINE=false cargo sqlx prepare --workspace`, et committer `.sqlx/` (outil : `cargo install sqlx-cli --version 0.8.6 --no-default-features --features postgres,rustls --locked`).
+- Erreurs d'API : JSON `{ "code": "E_…", "message": … }`, codes stables dans `ankou_proto::api::ApiErrorCode`.
 
 ## Règles
 
