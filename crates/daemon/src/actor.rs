@@ -290,6 +290,8 @@ impl Actor {
         } else if self.handshake_deadline.is_some_and(|d| Instant::now() >= d) {
             self.handshake_deadline = None;
             self.detail = String::new();
+            // Tunnel muet retiré pendant l'attente : sans kill switch, la machine garde Internet.
+            self.execute(Action::BringTunnelDown);
             self.handle(Event::Failure {
                 code: ErrorCode::ServerUnreachable,
             });
@@ -320,7 +322,8 @@ impl Actor {
                     .and_then(|t| SystemTime::now().duration_since(t).ok())
                     .is_none_or(|age| age > LINK_TIMEOUT)
             })
-            .unwrap_or(false);
+            // Statistiques illisibles (interface supprimée) : lien tenu pour perdu.
+            .unwrap_or(true);
         let event = if lost {
             Event::LinkLost
         } else if route_changed {

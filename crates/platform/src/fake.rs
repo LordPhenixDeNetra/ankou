@@ -11,6 +11,7 @@ struct TunnelState {
     handshakes: bool,
     fail_up: Option<PlatformError>,
     handshake: Option<SystemTime>,
+    fail_stats: bool,
 }
 
 #[derive(Clone)]
@@ -23,6 +24,7 @@ impl Default for FakeTunnel {
             handshakes: true,
             fail_up: None,
             handshake: None,
+            fail_stats: false,
         })))
     }
 }
@@ -46,6 +48,10 @@ impl FakeTunnel {
     pub fn age_handshake(&self, by: Duration) {
         let mut s = lock(&self.0);
         s.handshake = s.handshake.map(|t| t - by);
+    }
+    /// `true` : `stats()` échoue, comme une interface supprimée par un autre outil.
+    pub fn fail_stats(&self, on: bool) {
+        lock(&self.0).fail_stats = on;
     }
     pub fn is_up(&self) -> bool {
         lock(&self.0)
@@ -74,8 +80,12 @@ impl Tunnel for FakeTunnel {
     }
 
     fn stats(&self) -> Result<TunnelStats, PlatformError> {
+        let s = lock(&self.0);
+        if s.fail_stats {
+            return Err(PlatformError::Backend("interface absente".into()));
+        }
         Ok(TunnelStats {
-            last_handshake: lock(&self.0).handshake,
+            last_handshake: s.handshake,
             ..TunnelStats::default()
         })
     }

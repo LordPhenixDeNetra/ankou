@@ -480,3 +480,38 @@ async fn stop_brings_tunnel_down() {
     assert!(!tunnel.is_up());
     assert!(!socket.exists());
 }
+
+/// Sans handshake, le tunnel est retiré pendant l'attente : la machine garde Internet.
+#[tokio::test]
+async fn tunnel_is_down_while_waiting_to_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let tunnel = FakeTunnel::default();
+    tunnel.set_handshakes(false);
+    let d = Daemon::start(dir.path(), tunnel.clone()).await;
+    let mut w = d.watcher().await;
+    let mut c = d.client().await;
+    ask(
+        &mut c,
+        ClientToDaemon::Connect {
+            config: Some(config()),
+        },
+    )
+    .await;
+    wait_status(&mut w, |s| matches!(s, Status::Reconnecting { .. })).await;
+    assert!(!tunnel.is_up(), "{:?}", tunnel.calls());
+    d.stop().await;
+}
+
+/// Interface disparue (stats en échec) alors que connecté : reconnexion, pas « Connecté » à vie.
+#[tokio::test]
+async fn vanished_interface_reconnects() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    d.tunnel.fail_stats(true);
+    wait_status(&mut w, |s| matches!(s, Status::Reconnecting { .. })).await;
+    d.tunnel.fail_stats(false);
+    wait_status(&mut w, connected).await;
+    d.stop().await;
+}
