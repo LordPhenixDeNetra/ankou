@@ -1,14 +1,20 @@
 //! Accès PostgreSQL du serveur aNkou : seule couche qui écrit du SQL.
 
+mod devices;
 mod error;
+mod servers;
+mod sessions;
+mod users;
 
+pub use devices::Device;
 pub use error::StoreError;
+pub use servers::{NewServer, Server};
+pub use users::User;
 
 use sqlx::PgPool;
 
 #[derive(Clone)]
 pub struct Store {
-    #[allow(dead_code)] // lu par les opérations ajoutées juste après (Task 3)
     pool: PgPool,
 }
 
