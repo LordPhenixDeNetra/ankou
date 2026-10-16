@@ -86,6 +86,15 @@ impl<S: AsyncRead + Unpin> Framed<S> {
 
 pub type Connection = Framed<Stream>;
 
+/// Socket du service (spec §6.7) ; Windows (named pipe) arrive à l'étape 5.
+pub fn default_socket() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        "/var/run/ankou/ankoud.sock".into()
+    } else {
+        "/run/ankou/ankoud.sock".into()
+    }
+}
+
 fn name(path: &Path) -> std::io::Result<Name<'_>> {
     path.to_fs_name::<GenericFilePath>()
 }

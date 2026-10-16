@@ -48,7 +48,6 @@ utoipa = { version = "6", features = ["uuid", "time"] }
 clap = { version = "4", features = ["derive", "env"] }
 assert_cmd = "2"
 base64 = "0.23"
-ctrlc = { version = "3", features = ["termination"] }
 defguard_wireguard_rs = "0.12"
 ipnet = { version = "2", features = ["serde"] }
 proptest = "1"

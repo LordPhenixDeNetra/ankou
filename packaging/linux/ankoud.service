@@ -1,0 +1,24 @@
+[Unit]
+Description=aNkou VPN (service)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Root pour WireGuard et le routage ; groupe « ankou » : membres autorisés à piloter le VPN
+# par le socket /run/ankou/ankoud.sock (0660 grâce à UMask).
+ExecStart=/usr/local/bin/ankoud
+Group=ankou
+UMask=0007
+RuntimeDirectory=ankou
+RuntimeDirectoryMode=0750
+StateDirectory=ankou
+StateDirectoryMode=0700
+Restart=on-failure
+CapabilityBoundingSet=CAP_NET_ADMIN
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
