@@ -22,11 +22,22 @@ todo = "deny"
 ankou-core = { path = "crates/core", version = "0.1.0" }
 ankou-platform = { path = "crates/platform", version = "0.1.0" }
 ankou-proto = { path = "crates/proto", version = "0.1.0" }
+ankou-server-domain = { path = "crates/server-domain", version = "0.1.0" }
+ankou-server-store = { path = "crates/server-store", version = "0.1.0" }
+ankou-api = { path = "apps/ankou-api", version = "0.1.0" }
+ankou-admin = { path = "apps/ankou-admin", version = "0.1.0" }
 # Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
 lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }
 lpdnsoft-log = { path = "../lpdnsoft-libs/crates/log", version = "0.1.0" }
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+argon2 = "0.6"
+axum = { version = "0.8", features = ["macros"] }
+getrandom = "0.4"
+pasetors = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tower_governor = "0.8"
+utoipa = { version = "6", features = ["uuid", "time"] }
+clap = { version = "4", features = ["derive", "env"] }
 assert_cmd = "2"
 base64 = "0.23"
 ctrlc = { version = "3", features = ["termination"] }
@@ -37,4 +48,14 @@ serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 thiserror = "2"
 toml = "1"
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "uuid", "time", "ipnet"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
+sha2 = "0.10"
+time = { version = "0.3", features = ["serde-well-known", "macros"] }
+uuid = { version = "1", features = ["v7", "serde"] }
 x25519-dalek = { version = "3", features = ["static_secrets", "getrandom"] }
+
+# Argon2 est très lent sans optimisation : tests et développement restent rapides.
+[profile.dev.package.argon2]
+opt-level = 3

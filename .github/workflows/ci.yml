@@ -64,3 +64,48 @@ jobs:
       - name: Rendre target/ au runner (cache)
         if: always()
         run: sudo chown -R "$(id -u):$(id -g)" ankou/target
+
+  # API et base : tests contre un vrai PostgreSQL, données sqlx hors ligne à jour.
+  server-db:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ankou
+          POSTGRES_PASSWORD: ankou
+          POSTGRES_DB: ankou
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://ankou:ankou@localhost:5432/ankou
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ankou
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/lpdnsoft-libs
+          path: lpdnsoft-libs
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ankou
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: sqlx-cli@0.8.6
+      - name: Migrations et vérification de .sqlx/
+        working-directory: ankou
+        env:
+          SQLX_OFFLINE: "false"
+        run: |
+          cargo sqlx migrate run --source crates/server-store/migrations
+          cargo sqlx prepare --workspace --check
+      - name: Tests avec PostgreSQL
+        working-directory: ankou
+        run: cargo test -p ankou-server-store -p ankou-api -p ankou-admin -- --ignored

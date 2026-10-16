@@ -1,2 +1,6 @@
 [alias]
 xtask = "run --package xtask --"
+
+[env]
+# Requêtes sqlx vérifiées hors ligne grâce à .sqlx/ ; mettre SQLX_OFFLINE=false et DATABASE_URL pour les régénérer.
+SQLX_OFFLINE = "true"

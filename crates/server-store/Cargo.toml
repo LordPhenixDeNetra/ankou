@@ -1,0 +1,22 @@
+[package]
+name = "ankou-server-store"
+description = "Accès PostgreSQL du serveur aNkou (sqlx, migrations) : seule couche SQL."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ankou-proto.workspace = true
+ankou-server-domain.workspace = true
+ipnet.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

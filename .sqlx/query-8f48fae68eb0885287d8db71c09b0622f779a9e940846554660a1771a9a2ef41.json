@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO users (id, email, password_hash, plan_id)\n             VALUES ($1, $2, $3, (SELECT id FROM plans WHERE name = 'famille'))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8f48fae68eb0885287d8db71c09b0622f779a9e940846554660a1771a9a2ef41"
+}

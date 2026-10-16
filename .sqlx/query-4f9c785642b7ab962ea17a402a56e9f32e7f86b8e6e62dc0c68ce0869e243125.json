@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.id, u.email, u.password_hash, u.disabled_at IS NOT NULL AS \"disabled!\", p.max_devices\n               FROM users u JOIN plans p ON p.id = u.plan_id ORDER BY u.created_at, u.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "password_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "disabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "max_devices",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      true
+    ]
+  },
+  "hash": "4f9c785642b7ab962ea17a402a56e9f32e7f86b8e6e62dc0c68ce0869e243125"
+}
