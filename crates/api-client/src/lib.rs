@@ -1,7 +1,9 @@
 //! Client de l'API `/v1` d'aNkou : compte, session (jeton de rafraîchissement), serveurs, appareils.
 
+mod device;
 mod session;
 
+pub use device::{load_servers, save_servers, servers_cache_path, to_entries};
 pub use session::{Session, session_path};
 
 use ankou_proto::PublicKey;
@@ -24,6 +26,10 @@ pub enum ClientError {
     SessionExpired,
     #[error("fichier : {0}")]
     Io(String),
+    #[error("aucun serveur disponible")]
+    NoServer,
+    #[error("serveur inconnu : {0}")]
+    UnknownServer(String),
 }
 
 impl From<reqwest::Error> for ClientError {
