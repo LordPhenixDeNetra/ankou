@@ -4,8 +4,9 @@ Client VPN de la suite **LPDNSoft**, écrit en Rust, pour Windows, Linux et macO
 
 ## État
 
-- **Étape 1 — tunnel Linux en ligne de commande** : `sudo ankou-cli connect --config client.toml` ouvre un tunnel WireGuard vers un serveur et y fait passer tout le trafic (voir `docs/runbooks/etape-1-tunnel-manuel.md`).
+- **Étape 1 — tunnel Linux** : un tunnel WireGuard vers un serveur, par lequel passe tout le trafic (voir `docs/runbooks/etape-1-tunnel-manuel.md`).
 - **Étape 2 — serveur central et enrôlement** : API `/v1` (comptes sur invitation, connexion, appareils, serveurs) et `ankou-admin` sur PostgreSQL ; `ankou-node` sur chaque VPS applique les pairs WireGuard diffusés par l'API ; `ankou-cli register`, `login`, `servers` et `enroll` créent le compte et la configuration du poste. Déploiement : `docs/runbooks/etape-2-deploiement.md`.
+- **Étape 3a — service système** : `ankoud` tient le tunnel, se reconnecte seul (coupure, veille, changement de réseau) et au démarrage de la machine ; `ankou-cli connect`, `disconnect`, `status` et `autoconnect` le pilotent sans sudo (groupe `ankou`). Installation : `docs/runbooks/etape-3a-service.md`. Kill switch et protection DNS/IPv6 : étape 3b.
 
 ## Compiler depuis les sources
 

@@ -261,9 +261,11 @@ dependencies = [
  "ankou-daemon",
  "ankou-ipc",
  "ankou-platform",
+ "ankou-proto",
  "anyhow",
  "clap",
  "lpdnsoft-log",
+ "tempfile",
  "tokio",
 ]
 

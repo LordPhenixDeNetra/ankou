@@ -1,15 +1,15 @@
-//! Bout en bout Linux : vrai tunnel WireGuard entre deux namespaces réseau.
+//! Bout en bout Linux : `ankoud` dans un namespace réseau client, vrai tunnel WireGuard vers
+//! un namespace serveur ; `ankou-cli` hors namespace, par le socket du service.
 //!
 //! Nécessite root, `ip` (iproute2), `wg` (wireguard-tools) et le module `wireguard`.
-//! Lancement : `sudo -E env "PATH=$PATH" cargo test -p ankou-cli --test e2e_linux -- --ignored --test-threads=1`
+//! Lancement : `cargo build -p ankou-cli -p ankoud` puis
+//! `sudo -E env "PATH=$PATH" cargo test -p ankoud --test e2e_linux -- --ignored --test-threads=1`
 #![cfg(target_os = "linux")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ankou_proto::PrivateKey;
-use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 const CLIENT_NS: &str = "ankou-c";
@@ -174,54 +174,69 @@ impl Lab {
     }
 }
 
-/// Client lancé dans son namespace ; ses lignes stdout arrivent sur le canal.
-fn spawn_client(config: &PathBuf, retries: u32) -> (Child, mpsc::Receiver<String>) {
-    let mut child = Command::new("ip")
-        .args(["netns", "exec", CLIENT_NS, env!("CARGO_BIN_EXE_ankou-cli")])
-        .args([
-            "connect",
-            "--lang",
-            "en",
-            "--retries",
-            &retries.to_string(),
-            "--config",
-        ])
-        .arg(config)
-        .stdout(Stdio::piped())
+/// `ankoud` lancé dans le namespace client ; état et socket dans le dossier du `Lab`.
+fn spawn_daemon(dir: &Path) -> Child {
+    let child = Command::new("ip")
+        .args(["netns", "exec", CLIENT_NS, env!("CARGO_BIN_EXE_ankoud")])
+        .arg("--socket")
+        .arg(dir.join("ankoud.sock"))
+        .arg("--state-dir")
+        .arg(dir.join("state"))
+        .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let (tx, rx) = mpsc::channel();
-    let stdout = child.stdout.take().unwrap();
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            let _ = tx.send(line);
-        }
-    });
-    (child, rx)
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !dir.join("ankoud.sock").exists() {
+        assert!(Instant::now() < deadline, "socket d'ankoud absent");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    child
 }
 
-/// Attend « Connected to » ; sinon arrête le client et échoue avec un état complet du réseau.
-fn await_connected(child: &mut Child, rx: &mpsc::Receiver<String>) {
-    if wait_for_line(rx, "Connected to", Duration::from_secs(10)) {
+/// `ankou-cli` compilé à côté d'`ankoud` (`cargo build -p ankou-cli`).
+fn cli(dir: &Path, args: &[&str]) -> (Option<i32>, String, String) {
+    let bin = Path::new(env!("CARGO_BIN_EXE_ankoud")).with_file_name("ankou-cli");
+    assert!(
+        bin.exists(),
+        "cargo build -p ankou-cli d'abord ({})",
+        bin.display()
+    );
+    let out = Command::new(bin)
+        .env("ANKOU_SOCKET", dir.join("ankoud.sock"))
+        .args(["--lang", "en"])
+        .args(args)
+        .output()
+        .unwrap();
+    (
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+/// `connect` doit réussir ; sinon échec avec l'état complet du réseau.
+fn connect(dir: &Path, config: &Path) {
+    let (code, stdout, stderr) = cli(
+        dir,
+        &[
+            "connect",
+            "--wait",
+            "10",
+            "--config",
+            config.to_str().unwrap(),
+        ],
+    );
+    if code == Some(0) && stdout.contains("Connected to") {
         return;
     }
-    // État relevé pendant que le client tourne encore (il réessaie : --retries 3).
-    let mut report = String::from("pas de connexion\n");
+    let mut report = format!("pas de connexion ({code:?})\n{stdout}{stderr}\n");
     for args in [
         &["ip", "netns", "exec", CLIENT_NS, "wg", "show"][..],
         &["ip", "netns", "exec", SERVER_NS, "wg", "show"],
         &["ip", "-n", CLIENT_NS, "addr"],
         &["ip", "-n", CLIENT_NS, "rule"],
         &["ip", "-n", CLIENT_NS, "route", "show", "table", "all"],
-        &[
-            "ip",
-            "netns",
-            "exec",
-            CLIENT_NS,
-            "sysctl",
-            "net.ipv4.conf.all.rp_filter",
-        ],
     ] {
         let out = Command::new(args[0]).args(&args[1..]).output();
         let text = out.map_or_else(
@@ -236,26 +251,7 @@ fn await_connected(child: &mut Child, rx: &mpsc::Receiver<String>) {
         );
         report.push_str(&format!("--- {} ---\n{text}", args.join(" ")));
     }
-    let _ = child.kill();
-    let _ = child.wait();
-    let mut stderr = String::new();
-    if let Some(mut e) = child.stderr.take() {
-        let _ = std::io::Read::read_to_string(&mut e, &mut stderr);
-    }
-    report.push_str(&format!("--- stderr du client ---\n{stderr}"));
     panic!("{report}");
-}
-
-fn wait_for_line(rx: &mpsc::Receiver<String>, needle: &str, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-        match rx.recv_timeout(left) {
-            Ok(line) if line.contains(needle) => return true,
-            Ok(_) => {}
-            Err(_) => return false,
-        }
-    }
-    false
 }
 
 fn wait_exit(child: &mut Child, timeout: Duration) -> Option<i32> {
@@ -294,24 +290,18 @@ fn signal(child: &Child, sig: &str) {
     run(&["kill", sig, &child.id().to_string()]);
 }
 
-fn connect_then_signal(sig: &str) {
-    let (_lab, config) = Lab::new(true, true);
-    let (mut child, rx) = spawn_client(&config, 3);
-    await_connected(&mut child, &rx);
-    let route = run(&["ip", "-n", CLIENT_NS, "route", "get", "10.200.0.1"]);
-    assert!(route.contains("dev ankou0"), "trafic hors tunnel : {route}");
-    signal(&child, sig);
-    assert_eq!(wait_exit(&mut child, Duration::from_secs(5)), Some(0));
-    assert_clean();
+fn stop_daemon(mut daemon: Child) {
+    signal(&daemon, "-TERM");
+    assert_eq!(wait_exit(&mut daemon, Duration::from_secs(5)), Some(0));
 }
 
 /// Sans passerelle : seule la route du tunnel mène à 10.200.0.1.
 #[test]
 #[ignore]
 fn connects_and_routes_all_traffic() {
-    let (_lab, config) = Lab::new(true, false);
-    let (mut child, rx) = spawn_client(&config, 3);
-    await_connected(&mut child, &rx);
+    let (lab, config) = Lab::new(true, false);
+    let daemon = spawn_daemon(lab.dir.path());
+    connect(lab.dir.path(), &config);
     assert!(
         succeeds(&[
             "ip",
@@ -325,31 +315,76 @@ fn connects_and_routes_all_traffic() {
         ]),
         "10.200.0.1 injoignable par le tunnel"
     );
-    signal(&child, "-INT");
-    assert_eq!(wait_exit(&mut child, Duration::from_secs(5)), Some(0));
+    let (code, stdout, _) = cli(lab.dir.path(), &["disconnect"]);
+    assert_eq!(code, Some(0), "{stdout}");
+    assert_clean();
+    stop_daemon(daemon);
+}
+
+#[test]
+#[ignore]
+fn daemon_stop_removes_interface() {
+    let (lab, config) = Lab::new(true, true);
+    let daemon = spawn_daemon(lab.dir.path());
+    connect(lab.dir.path(), &config);
+    let route = run(&["ip", "-n", CLIENT_NS, "route", "get", "10.200.0.1"]);
+    assert!(route.contains("dev ankou0"), "trafic hors tunnel : {route}");
+    stop_daemon(daemon);
     assert_clean();
 }
 
 #[test]
 #[ignore]
-fn sigint_removes_interface() {
-    connect_then_signal("-INT");
-}
-
-#[test]
-#[ignore]
-fn sigterm_removes_interface() {
-    connect_then_signal("-TERM");
-}
-
-#[test]
-#[ignore]
-fn unreachable_server_exits_and_cleans_up() {
-    let (_lab, config) = Lab::new(false, true);
-    let (mut child, _rx) = spawn_client(&config, 1);
-    assert_eq!(wait_exit(&mut child, Duration::from_secs(20)), Some(1));
-    let mut stderr = String::new();
-    std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut stderr).unwrap();
-    assert!(stderr.contains("is not answering"), "{stderr}");
+fn crashed_daemon_reconnects_on_restart() {
+    let (lab, config) = Lab::new(true, true);
+    let dir = lab.dir.path();
+    let mut daemon = spawn_daemon(dir);
+    assert_eq!(cli(dir, &["autoconnect", "on"]).0, Some(0));
+    connect(dir, &config);
+    signal(&daemon, "-KILL");
+    let _ = daemon.wait();
+    assert!(succeeds(&["ip", "-n", CLIENT_NS, "link", "show", "ankou0"]));
+    // Socket laissé par le crash : le nouveau service le remplace.
+    let daemon = spawn_daemon(dir);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (_, stdout, _) = cli(dir, &["status"]);
+        if stdout.contains("Connected to") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "pas reconnecté : {stdout}");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let rules = run(&["ip", "-n", CLIENT_NS, "rule"]);
+    assert_eq!(
+        rules.matches("not from all fwmark 0xca6c").count(),
+        1,
+        "règles en double :\n{rules}"
+    );
+    assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
     assert_clean();
+    stop_daemon(daemon);
+}
+
+#[test]
+#[ignore]
+fn unreachable_server_keeps_trying() {
+    let (lab, config) = Lab::new(false, true);
+    let dir = lab.dir.path();
+    let daemon = spawn_daemon(dir);
+    let (code, _, stderr) = cli(
+        dir,
+        &[
+            "connect",
+            "--wait",
+            "8",
+            "--config",
+            config.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(code, Some(1));
+    assert!(stderr.contains("Still trying"), "{stderr}");
+    assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
+    assert_clean();
+    stop_daemon(daemon);
 }
