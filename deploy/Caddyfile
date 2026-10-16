@@ -1,0 +1,5 @@
+# API aNkou derrière Caddy : certificat Let's Encrypt automatique, WebSocket des nodes transmis tel quel.
+# Le runbook de l'étape 2 remplace {$ANKOU_API_DOMAIN} par le vrai nom (ex. api.exemple.org).
+{$ANKOU_API_DOMAIN} {
+	reverse_proxy 127.0.0.1:8080
+}

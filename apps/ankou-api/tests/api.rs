@@ -26,6 +26,7 @@ fn app_with(pool: PgPool, registration_open: bool) -> App {
         store: store.clone(),
         key: auth::random_key(),
         argon2: AppState::argon2_permits(),
+        hub: ankou_api::PeerHub::new(),
         config: Arc::new(ApiConfig {
             registration_open,
             ..ApiConfig::for_tests()

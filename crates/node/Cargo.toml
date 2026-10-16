@@ -1,0 +1,43 @@
+[package]
+name = "ankou-node-core"
+description = "Logique d'ankou-node : réconciliation des pairs, cache, accès WireGuard, client de l'API."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+fake = []
+
+[dependencies]
+ankou-core.workspace = true
+ankou-proto.workspace = true
+futures-util.workspace = true
+rustls.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+lpdnsoft-atomic.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+defguard_wireguard_rs.workspace = true
+ipnet.workspace = true
+time.workspace = true
+
+[dev-dependencies]
+ankou-api.workspace = true
+axum.workspace = true
+ankou-node-core = { path = ".", features = ["fake"] }
+ankou-server-domain.workspace = true
+ankou-server-store.workspace = true
+sqlx.workspace = true
+tempfile.workspace = true
+time.workspace = true
+tokio-tungstenite.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

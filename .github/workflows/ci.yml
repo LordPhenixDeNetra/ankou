@@ -108,4 +108,4 @@ jobs:
           cargo sqlx prepare --workspace --check
       - name: Tests avec PostgreSQL
         working-directory: ankou
-        run: cargo test -p ankou-server-store -p ankou-api -p ankou-admin -- --ignored
+        run: cargo test -p ankou-server-store -p ankou-api -p ankou-admin -p ankou-node-core -p ankou-api-client -- --ignored

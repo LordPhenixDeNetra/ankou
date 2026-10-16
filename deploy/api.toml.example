@@ -1,0 +1,16 @@
+# /etc/ankou/api.toml — propriétaire root:ankou-api, mode 0640 (contient le mot de passe de la base).
+
+# Base PostgreSQL (la variable d'environnement DATABASE_URL l'emporte si elle est définie).
+database_url = "postgres://ankou:<MOT_DE_PASSE_BASE>@127.0.0.1/ankou"
+
+# Clé de signature des jetons, créée par : ankou-api genkey --out /etc/ankou/token.key
+token_key_file = "/etc/ankou/token.key"
+
+# Adresse d'écoute : locale seulement, Caddy est devant (défaut : 127.0.0.1:8080).
+# listen = "127.0.0.1:8080"
+
+# Adresses des appareils (défaut : 10.8.0.0/16 ; 10.8.0.1 est celle des serveurs, dans wg0).
+# ip_pool = "10.8.0.0/16"
+
+# Inscription sans invitation (défaut : false).
+# registration_open = false

@@ -1,3 +1,4 @@
+mod account;
 mod messages;
 mod run;
 
@@ -36,6 +37,38 @@ enum Command {
         /// Number of new attempts after a failure
         #[arg(long, default_value_t = 5)]
         retries: u32,
+    },
+    /// Create an account with an invitation code (password asked twice)
+    Register {
+        /// API address, e.g. https://api.example.org
+        #[arg(long)]
+        api: String,
+        #[arg(long)]
+        invitation: String,
+        #[arg(long)]
+        email: String,
+    },
+    /// Sign in and save the session
+    Login {
+        /// API address; defaults to the saved session's
+        #[arg(long)]
+        api: Option<String>,
+        #[arg(long)]
+        email: String,
+    },
+    /// List the VPN servers
+    Servers,
+    /// Register this device and write its tunnel configuration
+    Enroll {
+        /// Device name shown in the account
+        #[arg(long)]
+        name: String,
+        /// Configuration file to create (never overwritten)
+        #[arg(long)]
+        out: PathBuf,
+        /// Server name; defaults to the first one
+        #[arg(long)]
+        server: Option<String>,
     },
 }
 
@@ -84,16 +117,33 @@ fn main() -> anyhow::Result<ExitCode> {
         }
         Command::Init { out } => init(&loc, &out)?,
         Command::Connect { config, retries } => connect(&loc, &config, retries)?,
+        Command::Register {
+            api,
+            invitation,
+            email,
+        } => account::run(account::register(&loc, &api, &invitation, &email))?,
+        Command::Login { api, email } => {
+            account::run(account::login(&loc, api.as_deref(), &email))?
+        }
+        Command::Servers => account::run(account::servers(&loc))?,
+        Command::Enroll { name, out, server } => {
+            account::run(account::enroll(&loc, &name, &out, server.as_deref()))?
+        }
     })
 }
 
-fn init(loc: &Localizer, out: &Path) -> anyhow::Result<ExitCode> {
-    let path = out.display().to_string();
+/// Nouveau fichier lisible par son seul propriétaire ; jamais d'écrasement.
+fn create_private(out: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = match options.open(out) {
+    options.open(out)
+}
+
+fn init(loc: &Localizer, out: &Path) -> anyhow::Result<ExitCode> {
+    let path = out.display().to_string();
+    let mut file = match create_private(out) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             eprintln!("{}", t!(loc, "cli-init-exists", path = path.as_str()));

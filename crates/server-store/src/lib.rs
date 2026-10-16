@@ -2,12 +2,14 @@
 
 mod devices;
 mod error;
+mod nodes;
 mod servers;
 mod sessions;
 mod users;
 
 pub use devices::Device;
 pub use error::StoreError;
+pub use nodes::{PEER_CHANNEL, PeerChange};
 pub use servers::{NewServer, Server};
 pub use users::User;
 

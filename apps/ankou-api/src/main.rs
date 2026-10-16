@@ -47,6 +47,8 @@ async fn serve(config: ApiConfig) -> anyhow::Result<()> {
     let key = auth::key_from_bytes(&key_bytes)
         .map_err(|e| anyhow::anyhow!("clé invalide ({e}) : 32 octets attendus"))?;
     let store = Store::connect(&config.database_url).await?;
+    let hub = ankou_api::PeerHub::new();
+    tokio::spawn(ankou_api::listen_peer_changes(store.clone(), hub.clone()));
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, "API démarrée");
     let state = AppState {
@@ -54,6 +56,7 @@ async fn serve(config: ApiConfig) -> anyhow::Result<()> {
         key,
         config: Arc::new(config),
         argon2: AppState::argon2_permits(),
+        hub: hub.clone(),
     };
     axum::serve(
         listener,

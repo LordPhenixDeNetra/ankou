@@ -25,13 +25,19 @@ ankou-proto = { path = "crates/proto", version = "0.1.0" }
 ankou-server-domain = { path = "crates/server-domain", version = "0.1.0" }
 ankou-server-store = { path = "crates/server-store", version = "0.1.0" }
 ankou-api = { path = "apps/ankou-api", version = "0.1.0" }
+ankou-api-client = { path = "crates/api-client", version = "0.1.0" }
+ankou-node-core = { path = "crates/node", version = "0.1.0" }
+ankou-node = { path = "apps/ankou-node", version = "0.1.0" }
 ankou-admin = { path = "apps/ankou-admin", version = "0.1.0" }
 # Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
+lpdnsoft-atomic = { path = "../lpdnsoft-libs/crates/atomic", version = "0.1.0" }
+lpdnsoft-settings = { path = "../lpdnsoft-libs/crates/settings", version = "0.1.0" }
 lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }
 lpdnsoft-log = { path = "../lpdnsoft-libs/crates/log", version = "0.1.0" }
 anyhow = "1"
 argon2 = "0.6"
-axum = { version = "0.8", features = ["macros"] }
+axum = { version = "0.8", features = ["macros", "ws"] }
+futures-util = "0.3"
 getrandom = "0.4"
 pasetors = "0.8"
 tower = { version = "0.5", features = ["util"] }
@@ -44,10 +50,15 @@ ctrlc = { version = "3", features = ["termination"] }
 defguard_wireguard_rs = "0.12"
 ipnet = { version = "2", features = ["serde"] }
 proptest = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+rpassword = "7"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 thiserror = "2"
 toml = "1"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+# Fournisseur cryptographique de rustls pour les WebSocket des nodes (ring, déjà présent par defguard).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "uuid", "time", "ipnet"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }

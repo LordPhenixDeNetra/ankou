@@ -1,0 +1,22 @@
+# /etc/ankou/node.toml — propriétaire root:ankou-node, mode 0640.
+
+# WebSocket de l'API, en TLS par Caddy.
+api_url = "wss://api.<DOMAINE>/v1/nodes/ws"
+
+# Jeton affiché une seule fois par « ankou-admin server add » (propriétaire ankou-node, mode 0600).
+token_file = "/etc/ankou/node.token"
+
+# Interface WireGuard gérée (défaut : wg0). Le node y ajoute et retire les pairs des appareils.
+# interface = "wg0"
+
+# Dernière liste reçue, réappliquée au démarrage si l'API est injoignable.
+# cache_file = "/var/lib/ankou-node/peers.json"
+
+# Pairs ajoutés à la main sur l'interface, que le node ne retire jamais (clés publiques).
+# keep_peers = ["<CLÉ_PUBLIQUE>"]
+
+# Fréquence d'envoi des statistiques à l'API, en secondes (défaut : 60).
+# stats_interval_secs = 60
+
+# Silence de l'API (qui pinge toutes les 30 s) au-delà duquel le node se reconnecte, en secondes (défaut : 90).
+# api_timeout_secs = 90

@@ -67,7 +67,7 @@ impl From<PrivateKey> for String {
 }
 
 /// Clé publique WireGuard, affichée en base64.
-#[derive(Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct PublicKey([u8; 32]);
 

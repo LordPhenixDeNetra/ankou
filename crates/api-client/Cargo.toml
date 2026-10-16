@@ -1,0 +1,30 @@
+[package]
+name = "ankou-api-client"
+description = "Client de l'API /v1 d'aNkou (comptes, appareils, serveurs)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ankou-proto.workspace = true
+lpdnsoft-atomic.workspace = true
+lpdnsoft-settings.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+ankou-api.workspace = true
+ankou-server-domain.workspace = true
+ankou-server-store.workspace = true
+axum.workspace = true
+sqlx.workspace = true
+tempfile.workspace = true
+time.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

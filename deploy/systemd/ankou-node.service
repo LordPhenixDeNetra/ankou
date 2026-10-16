@@ -1,0 +1,22 @@
+[Unit]
+Description=aNkou node (pairs WireGuard de wg0)
+After=network-online.target wg-quick@wg0.service
+Wants=network-online.target
+# wg0 recréée (redémarrage de wg-quick) = pairs perdus : le node redémarre avec elle et les réapplique.
+BindsTo=wg-quick@wg0.service
+
+[Service]
+User=ankou-node
+ExecStart=/usr/local/bin/ankou-node --config /etc/ankou/node.toml
+Restart=always
+RestartSec=2
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+StateDirectory=ankou-node
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

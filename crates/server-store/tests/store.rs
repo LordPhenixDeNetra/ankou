@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ankou_proto::{Endpoint, PrivateKey, PublicKey};
 use ankou_server_domain::{DomainError, hash_secret};
@@ -352,4 +352,159 @@ async fn servers_roundtrip(pool: PgPool) {
     assert_eq!(list[0].tags, ["p2p"]);
     assert!(list[0].active);
     assert_eq!(store.all_servers().await.unwrap().len(), 1);
+}
+
+mod nodes {
+    use super::*;
+    use ankou_proto::node::{NodePeer, PeerStat};
+    use ankou_server_store::{PEER_CHANNEL, PeerChange};
+    use sqlx::postgres::PgListener;
+
+    async fn next_change(listener: &mut PgListener) -> PeerChange {
+        let n = tokio::time::timeout(std::time::Duration::from_secs(2), listener.recv())
+            .await
+            .expect("aucune notification")
+            .unwrap();
+        PeerChange::from_payload(n.payload()).unwrap()
+    }
+
+    #[sqlx::test]
+    #[ignore = "PostgreSQL requis"]
+    async fn enroll_and_revoke_notify(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let mut listener = PgListener::connect_with(&pool).await.unwrap();
+        listener.listen(PEER_CHANNEL).await.unwrap();
+        let uid = user(&store, "a@x.org").await;
+        let k = key();
+        let d = store.enroll_device(uid, "A", &k, pool_net()).await.unwrap();
+        assert_eq!(
+            next_change(&mut listener).await,
+            PeerChange::Added(NodePeer {
+                public_key: k.clone(),
+                ipv4: Ipv4Addr::new(10, 8, 0, 2)
+            })
+        );
+        store.revoke_device(None, d.id).await.unwrap();
+        assert_eq!(next_change(&mut listener).await, PeerChange::Removed(k));
+    }
+
+    #[sqlx::test]
+    #[ignore = "PostgreSQL requis"]
+    async fn node_token_lookup(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        store
+            .add_server(NewServer {
+                name: "vps1".into(),
+                country: "FR".into(),
+                city: "Paris".into(),
+                endpoint: "vps1.example.org:51820".parse().unwrap(),
+                public_key: key(),
+                tags: vec![],
+                node_token_hash: hash_secret("tok"),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .server_by_node_token(hash_secret("tok"))
+                .await
+                .unwrap()
+                .unwrap()
+                .name,
+            "vps1"
+        );
+        assert!(
+            store
+                .server_by_node_token(hash_secret("x"))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        sqlx::query("UPDATE servers SET active = false")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            store
+                .server_by_node_token(hash_secret("tok"))
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[sqlx::test]
+    #[ignore = "PostgreSQL requis"]
+    async fn active_peers_skip_revoked(pool: PgPool) {
+        let store = Store::from_pool(pool);
+        let uid = user(&store, "a@x.org").await;
+        let a = store
+            .enroll_device(uid, "A", &key(), pool_net())
+            .await
+            .unwrap();
+        store
+            .enroll_device(uid, "B", &key(), pool_net())
+            .await
+            .unwrap();
+        store.revoke_device(None, a.id).await.unwrap();
+        let peers = store.active_peers().await.unwrap();
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].ipv4, Ipv4Addr::new(10, 8, 0, 3));
+    }
+
+    /// Compte désactivé : ses appareils quittent les nodes ; réactivé : ils reviennent.
+    #[sqlx::test]
+    #[ignore = "PostgreSQL requis"]
+    async fn disabling_user_removes_its_peers(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let uid = user(&store, "a@x.org").await;
+        let k = key();
+        store.enroll_device(uid, "A", &k, pool_net()).await.unwrap();
+        let mut listener = PgListener::connect_with(&pool).await.unwrap();
+        listener.listen(PEER_CHANNEL).await.unwrap();
+        store.set_user_disabled("a@x.org", true).await.unwrap();
+        assert_eq!(
+            next_change(&mut listener).await,
+            PeerChange::Removed(k.clone())
+        );
+        assert!(store.active_peers().await.unwrap().is_empty());
+        store.set_user_disabled("a@x.org", false).await.unwrap();
+        assert!(
+            matches!(next_change(&mut listener).await, PeerChange::Added(p) if p.public_key == k)
+        );
+        assert_eq!(store.active_peers().await.unwrap().len(), 1);
+    }
+
+    #[sqlx::test]
+    #[ignore = "PostgreSQL requis"]
+    async fn stats_keep_latest_handshake(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let uid = user(&store, "a@x.org").await;
+        let k = key();
+        store.enroll_device(uid, "A", &k, pool_net()).await.unwrap();
+        let t2 = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+        let t1 = t2 - Duration::minutes(5);
+        let stat = |t| PeerStat {
+            public_key: k.clone(),
+            last_handshake: Some(t),
+            rx_bytes: 1,
+            tx_bytes: 2,
+        };
+        store.record_stats(&[stat(t2)]).await.unwrap();
+        store.record_stats(&[stat(t1)]).await.unwrap();
+        store
+            .record_stats(&[PeerStat {
+                public_key: key(),
+                last_handshake: Some(t2),
+                rx_bytes: 0,
+                tx_bytes: 0,
+            }])
+            .await
+            .unwrap();
+        let got: Option<OffsetDateTime> = sqlx::query_scalar("SELECT last_handshake FROM devices")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(got, Some(t2));
+    }
 }
