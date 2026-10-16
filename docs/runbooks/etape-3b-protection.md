@@ -49,4 +49,4 @@ Facultatif, plantage du service : connecté, `sudo systemctl kill -s KILL ankoud
 
 - Pendant une connexion, le réseau local (imprimante, NAS) n'est pas joignable avec le kill switch. Seuls le tunnel, le VPS et le DHCP passent.
 - Le DNS passe par systemd-resolved vers Quad9 à travers le tunnel. Le résolveur propre d'aNkou (et le blocage des pubs) arrive à l'étape 6.
-- Le choix automatique du serveur le plus rapide arrive à l'étape 3c.
+- Choix automatique du serveur le plus rapide : `etape-3c-serveur-rapide.md`.

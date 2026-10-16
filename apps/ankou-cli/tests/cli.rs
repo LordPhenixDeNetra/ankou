@@ -195,3 +195,23 @@ fn enroll_checks_output_before_calling_api() {
     let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
     assert!(stderr.contains("Local error"), "{stderr}");
 }
+
+#[test]
+fn fastest_without_session_says_login() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = cli_without_daemon(dir.path())
+        .env("ANKOU_SESSION_FILE", dir.path().join("session.toml"))
+        .args(["connect", "--lang", "en", "--fastest"])
+        .assert()
+        .code(1);
+    assert!(stderr(&a).contains("ankou-cli login"), "{}", stderr(&a));
+}
+
+#[test]
+fn country_requires_fastest() {
+    let dir = tempfile::tempdir().unwrap();
+    cli_without_daemon(dir.path())
+        .args(["connect", "--country", "FR"])
+        .assert()
+        .code(2);
+}

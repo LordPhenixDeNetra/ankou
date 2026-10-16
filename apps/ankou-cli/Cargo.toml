@@ -21,6 +21,7 @@ toml.workspace = true
 tracing = "0.1"
 
 [dev-dependencies]
+uuid.workspace = true
 ankou-daemon.workspace = true
 ankou-platform = { workspace = true, features = ["fake"] }
 assert_cmd.workspace = true

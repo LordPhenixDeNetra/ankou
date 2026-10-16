@@ -2,6 +2,8 @@
 
 use crate::create_private;
 use ankou_api_client::{ApiClient, ClientError, Session, session_path};
+use ankou_proto::api::ServerInfo;
+use ankou_proto::ipc::ServerEntry;
 use ankou_proto::{DEFAULT_KEEPALIVE, InterfaceSection, PeerSection, PrivateKey, TunnelConfig};
 use lpdnsoft_i18n::{Localizer, t};
 use std::io::Write;
@@ -220,4 +222,84 @@ async fn register_device(
         },
     };
     Ok((config, chosen.name))
+}
+
+/// Candidats au choix automatique : pays sans casse, étiquette exacte, ordre de l'API.
+pub fn filter_servers(
+    servers: Vec<ServerInfo>,
+    country: Option<&str>,
+    tag: Option<&str>,
+) -> Vec<ServerEntry> {
+    servers
+        .into_iter()
+        .filter(|s| country.is_none_or(|c| s.country.eq_ignore_ascii_case(c)))
+        .filter(|s| tag.is_none_or(|t| s.tags.iter().any(|x| x == t)))
+        .map(|s| ServerEntry {
+            name: s.name,
+            public_key: s.public_key,
+            endpoint: s.endpoint,
+        })
+        .collect()
+}
+
+/// Liste filtrée des serveurs, depuis l'API (session enregistrée) ; message traduit sinon.
+pub async fn fastest_candidates(
+    loc: &Localizer,
+    country: Option<&str>,
+    tag: Option<&str>,
+) -> Result<Vec<ServerEntry>, String> {
+    let mut client = saved_client(loc).map_err(|Shown(m)| m)?;
+    let result = client.servers().await;
+    save(loc, &client).map_err(|Shown(m)| m)?;
+    let servers = result.map_err(|e| client_error(loc, e).0)?;
+    let candidates = filter_servers(servers, country, tag);
+    if candidates.is_empty() {
+        return Err(t!(
+            loc,
+            "cli-no-matching-server",
+            country = country.unwrap_or("-"),
+            tag = tag.unwrap_or("-")
+        ));
+    }
+    Ok(candidates)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filter_servers;
+    use ankou_proto::PrivateKey;
+    use ankou_proto::api::ServerInfo;
+
+    fn info(name: &str, country: &str, tags: &[&str]) -> ServerInfo {
+        ServerInfo {
+            id: uuid::Uuid::nil(),
+            name: name.into(),
+            country: country.into(),
+            city: "x".into(),
+            endpoint: "1.2.3.4:51820".parse().unwrap(),
+            public_key: PrivateKey::generate().public_key(),
+            tags: tags.iter().map(|t| (*t).into()).collect(),
+        }
+    }
+
+    #[test]
+    fn filter_servers_by_country_and_tag() {
+        let all = || {
+            vec![
+                info("a", "FR", &[]),
+                info("b", "fr", &["streaming"]),
+                info("c", "DE", &["streaming"]),
+            ]
+        };
+        let names = |v: Vec<ankou_proto::ipc::ServerEntry>| -> Vec<String> {
+            v.into_iter().map(|e| e.name).collect()
+        };
+        assert_eq!(names(filter_servers(all(), Some("FR"), None)), ["a", "b"]);
+        assert_eq!(
+            names(filter_servers(all(), Some("fr"), Some("streaming"))),
+            ["b"]
+        );
+        assert!(filter_servers(all(), None, Some("p2p")).is_empty());
+        assert_eq!(names(filter_servers(all(), None, None)), ["a", "b", "c"]);
+    }
 }
