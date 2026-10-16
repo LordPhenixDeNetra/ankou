@@ -549,3 +549,63 @@ fn kill_switch_survives_daemon_crash() {
     assert_clean();
     stop_daemon(daemon);
 }
+
+/// Deux candidats sur le même serveur : clé fausse (aucun handshake) et vraie clé.
+#[test]
+#[ignore]
+fn fastest_server_is_chosen() {
+    use ankou_proto::TunnelConfig;
+    use ankou_proto::ipc::{ClientToDaemon, DaemonToClient, ServerEntry};
+    let (lab, config) = Lab::new(true, true);
+    let dir = lab.dir.path();
+    let daemon = spawn_daemon(dir);
+    let cfg: TunnelConfig = toml::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+    let entry = |name: &str, public_key| ServerEntry {
+        name: name.into(),
+        public_key,
+        endpoint: cfg.peer.endpoint.clone(),
+    };
+    let servers = vec![
+        entry("bad", PrivateKey::generate().public_key()),
+        entry("good", cfg.peer.public_key.clone()),
+    ];
+    let socket = dir.join("ankoud.sock");
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let reply = rt.block_on(async {
+        let mut c = ankou_ipc::connect(&socket).await.unwrap();
+        c.send(&ClientToDaemon::ConnectFastest {
+            config: Some(cfg.clone()),
+            servers,
+        })
+        .await
+        .unwrap();
+        c.recv::<DaemonToClient>().await.unwrap().unwrap()
+    });
+    match reply {
+        DaemonToClient::Chosen { server, rtt_ms } => {
+            assert_eq!(server, "good");
+            assert!(rtt_ms < 1000, "{rtt_ms} ms");
+        }
+        other => panic!("réponse inattendue : {other:?}"),
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !cli(dir, &["status"])
+        .1
+        .contains("Connected to 192.168.77.2:51820")
+    {
+        assert!(Instant::now() < deadline, "pas connecté au serveur choisi");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let links = run(&["ip", "-n", CLIENT_NS, "link"]);
+    assert!(
+        !links.contains("ankoup"),
+        "interface de mesure restée :\n{links}"
+    );
+    assert!(reachable("10.200.0.1"), "tunnel inutilisable");
+    assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
+    assert_clean();
+    stop_daemon(daemon);
+}
