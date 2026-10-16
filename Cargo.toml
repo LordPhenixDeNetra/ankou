@@ -25,6 +25,7 @@ ankou-proto = { path = "crates/proto", version = "0.1.0" }
 ankou-server-domain = { path = "crates/server-domain", version = "0.1.0" }
 ankou-server-store = { path = "crates/server-store", version = "0.1.0" }
 ankou-api = { path = "apps/ankou-api", version = "0.1.0" }
+ankou-admin = { path = "apps/ankou-admin", version = "0.1.0" }
 # Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
 lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }
 lpdnsoft-log = { path = "../lpdnsoft-libs/crates/log", version = "0.1.0" }
@@ -36,7 +37,7 @@ pasetors = "0.8"
 tower = { version = "0.5", features = ["util"] }
 tower_governor = "0.8"
 utoipa = { version = "6", features = ["uuid", "time"] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 assert_cmd = "2"
 base64 = "0.23"
 ctrlc = { version = "3", features = ["termination"] }

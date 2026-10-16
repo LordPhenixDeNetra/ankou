@@ -28,6 +28,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "ankou-admin"
+version = "0.1.0"
+dependencies = [
+ "ankou-api",
+ "ankou-proto",
+ "ankou-server-domain",
+ "ankou-server-store",
+ "anyhow",
+ "assert_cmd",
+ "clap",
+ "lpdnsoft-i18n",
+ "lpdnsoft-log",
+ "sqlx",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "ankou-api"
 version = "0.1.0"
 dependencies = [
