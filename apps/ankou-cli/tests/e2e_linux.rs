@@ -49,7 +49,8 @@ impl Drop for Lab {
 
 impl Lab {
     /// `good_server_key = false` : le client reçoit une clé serveur fausse (aucun handshake possible).
-    fn new(good_server_key: bool) -> (Self, PathBuf) {
+    /// `with_gateway` : le client a une route par défaut via le serveur, comme un poste derrière une box.
+    fn new(good_server_key: bool, with_gateway: bool) -> (Self, PathBuf) {
         for ns in [CLIENT_NS, SERVER_NS] {
             let _ = succeeds(&["ip", "netns", "del", ns]);
             run(&["ip", "netns", "add", ns]);
@@ -127,7 +128,19 @@ impl Lab {
             "wg0",
         ]);
         run(&["ip", "-n", SERVER_NS, "link", "set", "wg0", "up"]);
-        // Adresse « Internet » joignable seulement par la route par défaut du client.
+        if with_gateway {
+            run(&[
+                "ip",
+                "-n",
+                CLIENT_NS,
+                "route",
+                "add",
+                "default",
+                "via",
+                "192.168.77.2",
+            ]);
+        }
+        // Adresse « Internet » du serveur, hors du réseau veth.
         run(&[
             "ip",
             "-n",
@@ -212,23 +225,46 @@ fn wait_exit(child: &mut Child, timeout: Duration) -> Option<i32> {
     None
 }
 
+/// Plus d'interface, de règle de routage ni de route vers l'endpoint chez le client.
 fn assert_clean() {
     assert!(
         !succeeds(&["ip", "-n", CLIENT_NS, "link", "show", "ankou0"]),
         "interface ankou0 restée"
     );
     let rules = run(&["ip", "-n", CLIENT_NS, "rule"]);
-    assert!(!rules.contains("fwmark"), "règles restées :\n{rules}");
+    assert!(
+        !rules.contains("fwmark") && !rules.contains("suppress_prefixlength"),
+        "règles restées :\n{rules}"
+    );
+    let routes = run(&["ip", "-n", CLIENT_NS, "route"]);
+    assert!(
+        !routes
+            .lines()
+            .any(|l| l.starts_with("192.168.77.2 ") || l.contains("blackhole")),
+        "routes restées :\n{routes}"
+    );
 }
 
-fn interrupt(child: &Child) {
-    run(&["kill", "-INT", &child.id().to_string()]);
+fn signal(child: &Child, sig: &str) {
+    run(&["kill", sig, &child.id().to_string()]);
 }
 
+fn connect_then_signal(sig: &str) {
+    let (_lab, config) = Lab::new(true, true);
+    let (mut child, rx) = spawn_client(&config, 0);
+    assert!(wait_for_line(&rx, "Connected to", Duration::from_secs(10)));
+    let route = run(&["ip", "-n", CLIENT_NS, "route", "get", "10.200.0.1"]);
+    assert!(route.contains("dev ankou0"), "trafic hors tunnel : {route}");
+    signal(&child, sig);
+    assert_eq!(wait_exit(&mut child, Duration::from_secs(5)), Some(0));
+    assert_clean();
+}
+
+/// Sans passerelle : seule la route du tunnel mène à 10.200.0.1.
 #[test]
 #[ignore]
 fn connects_and_routes_all_traffic() {
-    let (_lab, config) = Lab::new(true);
+    let (_lab, config) = Lab::new(true, false);
     let (mut child, rx) = spawn_client(&config, 0);
     assert!(
         wait_for_line(&rx, "Connected to", Duration::from_secs(10)),
@@ -247,25 +283,27 @@ fn connects_and_routes_all_traffic() {
         ]),
         "10.200.0.1 injoignable par le tunnel"
     );
-    interrupt(&child);
-    assert_eq!(wait_exit(&mut child, Duration::from_secs(5)), Some(0));
-}
-
-#[test]
-#[ignore]
-fn sigint_removes_interface() {
-    let (_lab, config) = Lab::new(true);
-    let (mut child, rx) = spawn_client(&config, 0);
-    assert!(wait_for_line(&rx, "Connected to", Duration::from_secs(10)));
-    interrupt(&child);
+    signal(&child, "-INT");
     assert_eq!(wait_exit(&mut child, Duration::from_secs(5)), Some(0));
     assert_clean();
 }
 
 #[test]
 #[ignore]
+fn sigint_removes_interface() {
+    connect_then_signal("-INT");
+}
+
+#[test]
+#[ignore]
+fn sigterm_removes_interface() {
+    connect_then_signal("-TERM");
+}
+
+#[test]
+#[ignore]
 fn unreachable_server_exits_and_cleans_up() {
-    let (_lab, config) = Lab::new(false);
+    let (_lab, config) = Lab::new(false, true);
     let (mut child, _rx) = spawn_client(&config, 1);
     assert_eq!(wait_exit(&mut child, Duration::from_secs(20)), Some(1));
     let mut stderr = String::new();

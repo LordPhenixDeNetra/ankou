@@ -79,7 +79,8 @@ Refaire 2 à 5 avec le VPS 2 si possible.
 
 ## 5. Limites connues de cette étape
 
-- Pas de kill switch ni de protection contre les fuites DNS : arrivent à l'étape 3. Les requêtes DNS passent par le tunnel vers le résolveur habituel.
-- IPv6 non routé si le VPS n'en propose pas (`allowed_ips` IPv4 seulement dans l'exemple).
+- **Fuites possibles, corrigées à l'étape 3 (kill switch, DNS, IPv6)** :
+  - **DNS** : si le résolveur du poste est sur le réseau local (box en `192.168.x.1`, cas courant d'Ubuntu avec systemd-resolved), les requêtes DNS **sortent hors du tunnel**, car les réseaux locaux directement connectés restent routés normalement. Pour l'éviter dès maintenant : `resolvectl dns ankou0 9.9.9.9` puis `resolvectl domain ankou0 '~.'` après la connexion.
+  - **IPv6** : avec `allowed_ips = ["0.0.0.0/0"]`, tout le trafic IPv6 **sort hors du tunnel** sur un réseau qui a l'IPv6. Pour le bloquer, ajouter `"::/0"` à `allowed_ips` (le VPS de cet exemple n'ayant pas d'IPv6 dans le tunnel, ce trafic est alors perdu au lieu de fuir).
 - Une coupure **après** la connexion n'est pas rattrapée par la CLI (pas de surveillance du lien avant `ankoud`, étape 3). Les échecs de connexion initiale sont réessayés (`--retries`, 5 par défaut).
 - `connect` fonctionne sous Linux seulement ; Windows et macOS arrivent à l'étape 5.

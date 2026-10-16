@@ -74,13 +74,26 @@ impl Tunnel for KernelTunnel {
         // un échec veut dire que le module WireGuard manque.
         api.create_interface()
             .map_err(|e| PlatformError::Unavailable(e.to_string()))?;
+        let endpoint_route = format!(
+            "{}/{}",
+            endpoint.ip(),
+            if endpoint.is_ipv4() { 32 } else { 128 }
+        );
+        let route_existed = !ip(&["route", "show", &endpoint_route])
+            .unwrap_or_default()
+            .is_empty();
         let configured = api
             .configure_interface(&config)
             .and_then(|()| api.configure_peer_routing(&[peer]));
         if let Err(e) = configured {
             // Ne rien laisser derrière en cas d'échec partiel.
-            let _ = api.remove_interface();
+            let _ = self.down();
             return Err(map_err(e));
+        }
+        // `configure_peer_routing` ajoute une route hôte vers l'endpoint dans la table main :
+        // inutile avec le routage par fwmark, trou noir sans passerelle, et jamais retirée.
+        if !route_existed {
+            let _ = ip(&["route", "del", &endpoint_route]);
         }
         Ok(())
     }
@@ -89,7 +102,13 @@ impl Tunnel for KernelTunnel {
         if !self.exists() {
             return Ok(());
         }
-        self.api()?.remove_interface().map_err(map_err)
+        // `remove_interface` retire les règles fwmark puis la config DNS : sans
+        // systemd-resolved ni resolvconf, il échoue avant de supprimer l'interface.
+        if let Err(e) = self.api()?.remove_interface() {
+            tracing::debug!(error = %e, "remove_interface incomplet, suppression directe");
+            ip(&["link", "del", &self.ifname]).map_err(|_| map_err(e))?;
+        }
+        Ok(())
     }
 
     fn stats(&self) -> Result<TunnelStats, PlatformError> {
@@ -101,6 +120,21 @@ impl Tunnel for KernelTunnel {
             stats.last_handshake = stats.last_handshake.max(peer.last_handshake);
         }
         Ok(stats)
+    }
+}
+
+/// Lance `ip` (iproute2) ; `Ok(stdout)` si la commande réussit.
+// ponytail: deux opérations de nettoyage par `ip` au lieu de messages netlink écrits à la main ;
+// à remplacer quand la bibliothèque corrigera ces cas (ou par netlink-packet-route).
+fn ip(args: &[&str]) -> Result<String, ()> {
+    let out = std::process::Command::new("ip")
+        .args(args)
+        .output()
+        .map_err(|_| ())?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(())
     }
 }
 
