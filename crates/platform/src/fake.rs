@@ -17,6 +17,7 @@ struct TunnelState {
     fail_up: Option<PlatformError>,
     handshake: Option<SystemTime>,
     fail_stats: bool,
+    traffic: (u64, u64),
 }
 
 #[derive(Clone)]
@@ -30,6 +31,7 @@ impl Default for FakeTunnel {
             fail_up: None,
             handshake: None,
             fail_stats: false,
+            traffic: (0, 0),
         })))
     }
 }
@@ -57,6 +59,10 @@ impl FakeTunnel {
     /// `true` : `stats()` échoue, comme une interface supprimée par un autre outil.
     pub fn fail_stats(&self, on: bool) {
         lock(&self.0).fail_stats = on;
+    }
+    /// Octets reçus et envoyés renvoyés par `stats()`.
+    pub fn set_traffic(&self, rx: u64, tx: u64) {
+        lock(&self.0).traffic = (rx, tx);
     }
     pub fn is_up(&self) -> bool {
         lock(&self.0)
@@ -91,7 +97,8 @@ impl Tunnel for FakeTunnel {
         }
         Ok(TunnelStats {
             last_handshake: s.handshake,
-            ..TunnelStats::default()
+            rx_bytes: s.traffic.0,
+            tx_bytes: s.traffic.1,
         })
     }
 }

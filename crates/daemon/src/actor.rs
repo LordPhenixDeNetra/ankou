@@ -41,6 +41,7 @@ pub enum Command {
     Disconnect(oneshot::Sender<DaemonToClient>),
     GetSettings(oneshot::Sender<DaemonSettings>),
     SetSettings(DaemonSettings, oneshot::Sender<DaemonToClient>),
+    Stats(oneshot::Sender<DaemonToClient>),
 }
 
 pub struct Actor {
@@ -230,6 +231,21 @@ impl Actor {
                 };
                 let _ = reply.send(answer);
             }
+            Command::Stats(reply) => {
+                let _ = reply.send(self.traffic());
+            }
+        }
+    }
+
+    /// Compteurs du tunnel quand il est établi, sinon (ou s'ils sont illisibles) zéro.
+    fn traffic(&self) -> DaemonToClient {
+        let stats = match self.status {
+            Status::Connected { .. } => self.tunnel.stats().unwrap_or_default(),
+            _ => ankou_platform::TunnelStats::default(),
+        };
+        DaemonToClient::Stats {
+            rx_bytes: stats.rx_bytes,
+            tx_bytes: stats.tx_bytes,
         }
     }
 

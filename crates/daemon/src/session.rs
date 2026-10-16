@@ -117,5 +117,6 @@ async fn answer(
         ClientToDaemon::SetSettings { settings } => {
             ask(commands, |tx| Command::SetSettings(settings, tx)).await?
         }
+        ClientToDaemon::GetStats => ask(commands, Command::Stats).await?,
     })
 }

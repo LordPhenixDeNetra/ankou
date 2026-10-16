@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use ankou_proto::TunnelConfig;
-use ankou_proto::ipc::{ClientToDaemon, DaemonToClient, Status};
+use ankou_proto::ipc::{ClientToDaemon, DaemonToClient, IPC_PROTOCOL_VERSION, Status};
 use serde_json::json;
 
 fn config() -> TunnelConfig {
@@ -21,10 +21,10 @@ allowed_ips = ["0.0.0.0/0"]
 #[test]
 fn ipc_messages_are_tagged() {
     let hello = serde_json::to_value(ClientToDaemon::Hello {
-        protocol_version: 1,
+        protocol_version: IPC_PROTOCOL_VERSION,
     })
     .unwrap();
-    assert_eq!(hello, json!({"type": "hello", "protocol_version": 1}));
+    assert_eq!(hello, json!({"type": "hello", "protocol_version": 2}));
     let status = serde_json::to_value(DaemonToClient::Status {
         status: Status::Connected {
             server: "vps1".into(),
@@ -78,4 +78,25 @@ fn connect_fastest_is_tagged() {
         json!({"type": "chosen", "server": "vps1", "rtt_ms": 12})
     );
     assert_eq!(ankou_proto::ipc::MAX_PROBED, 16);
+}
+
+#[test]
+fn stats_messages_round_trip() {
+    assert_eq!(
+        serde_json::to_value(ClientToDaemon::GetStats).unwrap(),
+        json!({"type": "get_stats"})
+    );
+    let stats = DaemonToClient::Stats {
+        rx_bytes: 7,
+        tx_bytes: 9,
+    };
+    let value = serde_json::to_value(&stats).unwrap();
+    assert_eq!(
+        value,
+        json!({"type": "stats", "rx_bytes": 7, "tx_bytes": 9})
+    );
+    assert_eq!(
+        serde_json::from_value::<DaemonToClient>(value).unwrap(),
+        stats
+    );
 }
