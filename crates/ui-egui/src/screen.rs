@@ -31,6 +31,15 @@ pub struct Screen {
     pub tag: Option<String>,
     /// Liste des serveurs déjà demandée une fois.
     pub servers_requested: bool,
+    // Formulaires du compte. Le mot de passe est vidé dès l'envoi.
+    pub api_url: String,
+    pub email: String,
+    pub password: String,
+    pub password_again: String,
+    pub invitation: String,
+    pub device_name: String,
+    pub register_mode: bool,
+    pub password_mismatch: bool,
 }
 
 impl Screen {
@@ -45,6 +54,14 @@ impl Screen {
             search: String::new(),
             tag: None,
             servers_requested: false,
+            api_url: "https://".into(),
+            email: String::new(),
+            password: String::new(),
+            password_again: String::new(),
+            invitation: String::new(),
+            device_name: String::new(),
+            register_mode: false,
+            password_mismatch: false,
         }
     }
 
@@ -68,7 +85,9 @@ impl Screen {
         match self.tab {
             Tab::Home => views::home::show(self, ui),
             Tab::Servers => views::servers::show(self, ui),
-            Tab::Account | Tab::Settings | Tab::About => {}
+            Tab::Account => views::account::show(self, ui),
+            Tab::Settings => views::settings::show(self, ui),
+            Tab::About => views::about::show(self, ui),
         }
     }
 
@@ -80,6 +99,13 @@ impl Screen {
                 favs.remove(i);
             }
             None => favs.push(name.to_owned()),
+        }
+        self.save_prefs();
+    }
+
+    pub(crate) fn save_prefs(&self) {
+        if let Some(dir) = &self.prefs_dir {
+            crate::prefs::save_prefs(dir, &self.prefs);
         }
     }
 
@@ -108,7 +134,7 @@ pub(crate) mod tests {
     use crate::prefs::Prefs;
     use ankou_proto::PrivateKey;
     use ankou_proto::api::ServerInfo;
-    use ankou_proto::ipc::Status;
+    use ankou_proto::ipc::{DaemonSettings, Status};
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
     use std::time::{Duration, Instant};
@@ -255,5 +281,116 @@ pub(crate) mod tests {
             })),
             Tone::Alert
         );
+    }
+
+    #[test]
+    fn login_form_sends_login_and_clears_password() {
+        let mut s = ready(Status::Disconnected);
+        s.tab = Tab::Account;
+        s.api_url.clear();
+        let mut h = harness(s);
+        type_into(&mut h, "API address", "https://api.example.org");
+        type_into(&mut h, "Email", "a@x.org");
+        type_into(&mut h, "Password", "correct horse battery");
+        h.get_by_label("Sign in").click();
+        h.run();
+        assert_eq!(
+            h.state().outbox,
+            [Request::Login {
+                api: "https://api.example.org".into(),
+                email: "a@x.org".into(),
+                password: "correct horse battery".into(),
+            }]
+        );
+        assert!(h.state().password.is_empty());
+    }
+
+    #[test]
+    fn register_with_mismatched_passwords_sends_nothing() {
+        let mut s = ready(Status::Disconnected);
+        s.tab = Tab::Account;
+        s.register_mode = true;
+        let mut h = harness(s);
+        type_into(&mut h, "Invitation code", "abc");
+        type_into(&mut h, "Email", "a@x.org");
+        type_into(&mut h, "Password", "correct horse battery");
+        type_into(&mut h, "Password (again)", "something else!");
+        h.get_by_label("Create account").click();
+        h.run();
+        assert!(h.state().outbox.is_empty());
+        h.get_by_label_contains("passwords differ");
+    }
+
+    #[test]
+    fn enroll_form_sends_device_name() {
+        let mut s = ready(Status::Disconnected);
+        s.tab = Tab::Account;
+        s.model.apply(Update::Account {
+            session: Some("https://api.example.org".into()),
+        });
+        let mut h = harness(s);
+        type_into(&mut h, "Device name", "Laptop");
+        h.get_by_label("Enroll this device").click();
+        h.run();
+        assert_eq!(
+            h.state().outbox,
+            [Request::Enroll {
+                name: "Laptop".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn kill_switch_toggle_sends_settings() {
+        let mut s = ready(Status::Disconnected);
+        s.tab = Tab::Settings;
+        s.model.apply(Update::Settings(DaemonSettings {
+            auto_connect: true,
+            kill_switch: true,
+        }));
+        let mut h = harness(s);
+        h.get_by_label("Kill switch").click();
+        h.run();
+        assert_eq!(
+            h.state().outbox,
+            [Request::SetSettings(DaemonSettings {
+                auto_connect: true,
+                kill_switch: false,
+            })]
+        );
+    }
+
+    #[test]
+    fn language_switch_relabels_and_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = ready(Status::Disconnected);
+        s.prefs_dir = Some(dir.path().to_owned());
+        s.tab = Tab::Settings;
+        let mut h = harness(s);
+        h.get_by_label("Français").click();
+        h.run();
+        h.get_by_label("Réglages");
+        let prefs = crate::prefs::load_prefs(dir.path());
+        assert_eq!(prefs.language.as_deref(), Some("fr"));
+        let loc = crate::localizer(prefs.language.as_deref()).unwrap();
+        let h = harness(Screen::new(loc, prefs, Some(dir.path().to_owned())));
+        h.get_by_label("Réglages");
+    }
+
+    #[test]
+    fn favourite_is_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = ready(Status::Disconnected);
+        s.prefs_dir = Some(dir.path().to_owned());
+        s.model.apply(Update::Servers {
+            list: vec![info("a", "FR")],
+            cached: false,
+        });
+        s.tab = Tab::Servers;
+        let mut h = harness(s);
+        h.get_by_label("☆").click();
+        h.run();
+        assert_eq!(crate::prefs::load_prefs(dir.path()).favourites, ["a"]);
+        h.get_by_label("★");
     }
 }

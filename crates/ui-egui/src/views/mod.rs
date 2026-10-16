@@ -1,7 +1,10 @@
 //! Onglets de la fenêtre et textes partagés (erreurs, tailles).
 
+pub mod about;
+pub mod account;
 pub mod home;
 pub mod servers;
+pub mod settings;
 
 use crate::model::{Link, Notice, Problem, Scale, scale};
 use crate::screen::{Screen, Tab};
