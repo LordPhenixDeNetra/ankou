@@ -1,0 +1,8 @@
+[interface]
+private_key = "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk="
+address = ["10.8.0.2/32"]
+
+[peer]
+public_key = "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
+endpoint = "127.0.0.1:9"
+allowed_ips = ["0.0.0.0/0"]

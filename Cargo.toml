@@ -19,6 +19,8 @@ dbg_macro = "deny"
 todo = "deny"
 
 [workspace.dependencies]
+ankou-core = { path = "crates/core", version = "0.1.0" }
+ankou-platform = { path = "crates/platform", version = "0.1.0" }
 ankou-proto = { path = "crates/proto", version = "0.1.0" }
 # Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
 lpdnsoft-i18n = { path = "../lpdnsoft-libs/crates/i18n", version = "0.1.0" }

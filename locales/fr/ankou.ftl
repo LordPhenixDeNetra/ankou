@@ -1,1 +1,13 @@
 cli-version = { $app } { $version } (protocole { $protocol })
+cli-init-written = Configuration écrite dans { $path }. Clé publique à donner au serveur : { $public_key }
+cli-init-exists = { $path } existe déjà et n'a pas été écrasé.
+cli-config-invalid = Configuration invalide dans { $path } : { $detail }
+cli-config-permissions = Attention : { $path } est lisible par d'autres utilisateurs. Lancez : chmod 600 { $path }
+cli-status-connecting = Connexion à { $server }…
+cli-status-connected = Connecté à { $server }. Ctrl+C pour se déconnecter.
+cli-status-reconnecting = Connexion perdue, nouvelle tentative { $attempt }…
+cli-status-disconnected = Déconnecté.
+error-tunnel-permission = Des droits administrateur sont nécessaires : lancez la commande avec sudo.
+error-tunnel-unavailable = WireGuard n'est pas disponible sur ce système ({ $detail }).
+error-server-unreachable = Le serveur { $server } ne répond pas.
+error-internal = Erreur interne : { $detail }

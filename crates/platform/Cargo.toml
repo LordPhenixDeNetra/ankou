@@ -1,0 +1,25 @@
+[package]
+name = "ankou-platform"
+description = "Accès système d'aNkou (tunnel WireGuard…) derrière des traits, avec implémentations factices."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+fake = []
+
+[dependencies]
+ankou-proto.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+defguard_wireguard_rs.workspace = true
+ipnet.workspace = true
+
+[dev-dependencies]
+ankou-platform = { path = ".", features = ["fake"] }
+toml.workspace = true
+
+[lints]
+workspace = true
