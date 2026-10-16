@@ -104,19 +104,42 @@ dependencies = [
 ]
 
 [[package]]
-name = "ankou-node-core"
+name = "ankou-node"
 version = "0.1.0"
 dependencies = [
  "ankou-node-core",
+ "anyhow",
+ "clap",
+ "lpdnsoft-log",
+ "tokio",
+ "toml",
+]
+
+[[package]]
+name = "ankou-node-core"
+version = "0.1.0"
+dependencies = [
+ "ankou-api",
+ "ankou-core",
+ "ankou-node-core",
  "ankou-proto",
+ "ankou-server-domain",
+ "ankou-server-store",
+ "axum",
  "defguard_wireguard_rs",
+ "futures-util",
  "ipnet",
  "lpdnsoft-atomic",
+ "serde",
  "serde_json",
+ "sqlx",
  "tempfile",
  "thiserror 2.0.21",
  "time",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -10,7 +10,12 @@ license.workspace = true
 fake = []
 
 [dependencies]
+ankou-core.workspace = true
 ankou-proto.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
 lpdnsoft-atomic.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -22,8 +27,15 @@ ipnet.workspace = true
 time.workspace = true
 
 [dev-dependencies]
+ankou-api.workspace = true
+axum.workspace = true
 ankou-node-core = { path = ".", features = ["fake"] }
+ankou-server-domain.workspace = true
+ankou-server-store.workspace = true
+sqlx.workspace = true
 tempfile.workspace = true
+time.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true

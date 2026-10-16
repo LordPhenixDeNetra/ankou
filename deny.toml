@@ -34,3 +34,8 @@ unknown-git = "deny"
 [[licenses.exceptions]]
 crate = "option-ext"
 allow = ["MPL-2.0"]
+
+# webpki-roots : liste des autorités de certification de Mozilla, licence de données permissive.
+[[licenses.exceptions]]
+crate = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]

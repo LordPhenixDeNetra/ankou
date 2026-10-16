@@ -26,6 +26,7 @@ ankou-server-domain = { path = "crates/server-domain", version = "0.1.0" }
 ankou-server-store = { path = "crates/server-store", version = "0.1.0" }
 ankou-api = { path = "apps/ankou-api", version = "0.1.0" }
 ankou-node-core = { path = "crates/node", version = "0.1.0" }
+ankou-node = { path = "apps/ankou-node", version = "0.1.0" }
 ankou-admin = { path = "apps/ankou-admin", version = "0.1.0" }
 # Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
 lpdnsoft-atomic = { path = "../lpdnsoft-libs/crates/atomic", version = "0.1.0" }

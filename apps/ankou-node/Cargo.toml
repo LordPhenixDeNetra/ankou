@@ -1,0 +1,18 @@
+[package]
+name = "ankou-node"
+description = "Agent des serveurs VPN aNkou : applique les pairs reçus de l'API à WireGuard."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ankou-node-core.workspace = true
+lpdnsoft-log.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true
