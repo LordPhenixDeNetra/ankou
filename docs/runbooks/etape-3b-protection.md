@@ -42,7 +42,8 @@ Facultatif, plantage du service : connecté, `sudo systemctl kill -s KILL ankoud
 - **Plus aucun accès à Internet** : le VPS ne répond pas et le kill switch bloque tout, c'est voulu. `ankou-cli disconnect` rend l'accès direct ; `ankou-cli killswitch off` permet de rester connecté sans blocage.
 - **« Le pare-feu (nftables) est indisponible »** : `sudo apt install nftables`, puis `ankou-cli connect`.
 - **DNS qui ne répond plus une fois connecté** : vérifier que systemd-resolved tourne (`systemctl status systemd-resolved`, et `/etc/resolv.conf` doit pointer vers `127.0.0.53`).
-- **Dernier recours** (service arrêté, règles restées) : `sudo nft delete table inet ankou`.
+- **Arrêter le service garde la protection** : après `sudo systemctl stop ankoud` pendant une connexion, Internet reste bloqué hors tunnel ; au redémarrage du service, la connexion reprend seule. Pour lever la protection : `ankou-cli disconnect` **avant** d'arrêter le service.
+- **Dernier recours** (service désinstallé, règles restées) : `sudo nft delete table inet ankou`.
 
 ## 4. Limites connues de cette étape
 

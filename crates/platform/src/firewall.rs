@@ -27,22 +27,39 @@ const TABLE: &str = "inet ankou";
 /// Script pour `nft -f -` : création, suppression puis nouvelle définition dans une
 /// seule transaction, donc aucun instant sans règles.
 pub fn nft_ruleset(policy: &FirewallPolicy) -> String {
+    let iface = &policy.interface;
     let mut s = format!("add table {TABLE}\ndelete table {TABLE}\ntable {TABLE} {{\n");
     s.push_str("  chain output {\n    type filter hook output priority 0; policy accept;\n");
     s.push_str("    oifname \"lo\" accept\n");
-    let _ = writeln!(s, "    oifname \"{}\" accept", policy.interface);
+    let _ = writeln!(s, "    oifname \"{iface}\" accept");
+    // Serveurs : toujours joignables (sinon l'IPv6 bloqué couperait un endpoint IPv6).
+    for ep in &policy.endpoints {
+        let family = if ep.is_ipv4() { "ip" } else { "ip6" };
+        let _ = writeln!(
+            s,
+            "    {family} daddr {} udp dport {} accept",
+            ep.ip(),
+            ep.port()
+        );
+    }
+    if policy.endpoints.iter().any(SocketAddr::is_ipv6) {
+        // Découverte des voisins, sans laquelle un endpoint IPv6 reste injoignable.
+        s.push_str(
+            "    icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit } accept\n",
+        );
+    }
     if policy.kill_switch {
-        for ep in &policy.endpoints {
-            let family = if ep.is_ipv4() { "ip" } else { "ip6" };
-            let _ = writeln!(
-                s,
-                "    {family} daddr {} udp dport {} accept",
-                ep.ip(),
-                ep.port()
-            );
-        }
         s.push_str("    udp sport 68 udp dport 67 accept\n");
     }
+    s.push_str("    meta nfproto ipv6 drop\n");
+    if policy.kill_switch {
+        s.push_str("    meta nfproto ipv4 drop\n");
+    }
+    s.push_str("  }\n");
+    // Trafic routé par l'hôte (conteneurs, VM en NAT) : même règle que l'hôte.
+    s.push_str("  chain forward {\n    type filter hook forward priority 0; policy accept;\n");
+    let _ = writeln!(s, "    iifname \"{iface}\" accept");
+    let _ = writeln!(s, "    oifname \"{iface}\" accept");
     s.push_str("    meta nfproto ipv6 drop\n");
     if policy.kill_switch {
         s.push_str("    meta nfproto ipv4 drop\n");

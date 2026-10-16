@@ -98,3 +98,39 @@ fn fake_dns_records_servers() {
     handle.fail(true);
     assert!(d.set("ankou0", &[]).is_err());
 }
+
+/// Conteneurs et VM (trafic routé par l'hôte) : même blocage que l'hôte.
+#[test]
+fn forwarded_traffic_is_filtered_too() {
+    let on = nft_ruleset(&policy(true));
+    let forward = &on[on.find("chain forward").unwrap()..];
+    assert!(
+        forward.contains("type filter hook forward priority 0"),
+        "{on}"
+    );
+    assert!(forward.contains("iifname \"ankou0\" accept"), "{on}");
+    assert!(forward.contains("oifname \"ankou0\" accept"), "{on}");
+    assert!(forward.contains("meta nfproto ipv6 drop"), "{on}");
+    assert!(forward.contains("meta nfproto ipv4 drop"), "{on}");
+    let off = nft_ruleset(&policy(false));
+    let forward = &off[off.find("chain forward").unwrap()..];
+    assert!(forward.contains("meta nfproto ipv6 drop"), "{off}");
+    assert!(!forward.contains("meta nfproto ipv4 drop"), "{off}");
+}
+
+/// Endpoint IPv6 : joignable avec ou sans kill switch (règle + découverte des voisins).
+#[test]
+fn ipv6_endpoint_reachable_without_kill_switch() {
+    let mut p = policy(false);
+    p.endpoints = vec!["[2001:db8::7]:51820".parse().unwrap()];
+    let r = nft_ruleset(&p);
+    let drop6 = r.find("meta nfproto ipv6 drop").unwrap();
+    assert!(
+        r.find("ip6 daddr 2001:db8::7 udp dport 51820 accept")
+            .unwrap()
+            < drop6,
+        "{r}"
+    );
+    assert!(r.find("nd-neighbor-solicit").unwrap() < drop6, "{r}");
+    assert!(!nft_ruleset(&policy(false)).contains("nd-neighbor-solicit"));
+}

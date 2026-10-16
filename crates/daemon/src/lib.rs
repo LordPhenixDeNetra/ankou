@@ -6,7 +6,9 @@ mod session;
 mod store;
 
 use ankou_ipc::{IpcError, IpcListener};
-use ankou_platform::{Dns, Firewall, SystemWatch, Tunnel};
+use ankou_platform::{Dns, Firewall, PlatformError, SystemWatch, Tunnel};
+use ankou_proto::Endpoint;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
@@ -28,12 +30,16 @@ impl DaemonConfig {
     }
 }
 
+/// Résolution d'un endpoint en adresse (`ankou_platform::resolve_endpoint` en vrai).
+pub type Resolver = Box<dyn Fn(&Endpoint) -> Result<SocketAddr, PlatformError> + Send>;
+
 /// Accès système du service, réels (`ankoud`) ou factices (tests).
 pub struct System {
     pub tunnel: Box<dyn Tunnel + Send>,
     pub firewall: Box<dyn Firewall>,
     pub dns: Box<dyn Dns>,
     pub watch: Box<dyn SystemWatch>,
+    pub resolve: Resolver,
 }
 
 #[derive(Debug, thiserror::Error)]

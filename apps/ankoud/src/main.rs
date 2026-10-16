@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
         firewall: ankou_platform::default_firewall(),
         dns: ankou_platform::default_dns(),
         watch: ankou_platform::default_watch(),
+        resolve: Box::new(ankou_platform::resolve_endpoint),
     };
     match ankou_daemon::run(config, system, stop_rx).await {
         Err(DaemonError::Ipc(IpcError::AlreadyRunning)) => {

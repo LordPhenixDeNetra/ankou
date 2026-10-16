@@ -36,6 +36,7 @@ impl Daemon {
                 firewall: Box::new(FakeFirewall::default()),
                 dns: Box::new(FakeDns::default()),
                 watch: Box::new(FakeWatch::default()),
+                resolve: Box::new(ankou_platform::resolve_endpoint),
             };
             rt.block_on(run(config, system, stop_rx)).unwrap();
         });

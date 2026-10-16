@@ -5,7 +5,7 @@ use crate::System;
 use crate::store::Store;
 use ankou_core::{Action, CoreSettings, Event, Machine, State};
 use ankou_platform::{
-    Dns, Firewall, FirewallPolicy, INTERFACE, PlatformError, SystemWatch, Tunnel, resolve_endpoint,
+    Dns, Firewall, FirewallPolicy, INTERFACE, PlatformError, SystemWatch, Tunnel,
 };
 use ankou_proto::ipc::{DaemonSettings, DaemonToClient, Status};
 use ankou_proto::{DEFAULT_DNS, Endpoint, ErrorCode, TunnelConfig};
@@ -38,6 +38,7 @@ pub struct Actor {
     firewall: Box<dyn Firewall>,
     dns: Box<dyn Dns>,
     watch: Box<dyn SystemWatch>,
+    resolve: crate::Resolver,
     /// Dernière politique appliquée ; `None` : pas de table.
     firewall_policy: Option<FirewallPolicy>,
     store: Store,
@@ -109,6 +110,7 @@ impl Actor {
             firewall: system.firewall,
             dns: system.dns,
             watch: system.watch,
+            resolve: system.resolve,
             firewall_policy: None,
             store,
             status: Status::Disconnected,
@@ -167,11 +169,18 @@ impl Actor {
                 _ = tick.tick() => self.watch_tick(),
             }
         }
-        self.handle(Event::Disconnect);
+        // Arrêt du service (mise à jour, redémarrage, extinction) : seul `Disconnect` de
+        // l'utilisateur lève la protection (§6.4). La table reste ; au démarrage suivant,
+        // le service la retrouve et se reconnecte.
+        self.dns.revert(INTERFACE);
         if let Err(e) = self.tunnel.down() {
             tracing::warn!(error = %e, "retrait du tunnel incomplet");
         }
-        self.clear_firewall();
+        if self.status == Status::Disconnected {
+            self.clear_firewall();
+        } else {
+            tracing::info!("arrêt pendant une connexion : protection gardée jusqu'au redémarrage");
+        }
     }
 
     fn command(&mut self, cmd: Command) {
@@ -212,6 +221,9 @@ impl Actor {
             if let Err(e) = self.store.save_profile(&cfg) {
                 return failed(ErrorCode::Internal, e);
             }
+            // Résolu (et mis en cache) tant que l'ancien tunnel porte encore le DNS : une
+            // fois coupé, le kill switch bloquerait la résolution.
+            let _ = self.endpoint(&cfg.peer.endpoint);
             self.profile = Some(cfg);
         }
         let Some(cfg) = &self.profile else {
@@ -336,7 +348,7 @@ impl Actor {
 
     /// Résout l'endpoint et met le cache à jour ; sinon, l'adresse du cache.
     fn endpoint(&self, endpoint: &Endpoint) -> Option<SocketAddr> {
-        let resolved = resolve_endpoint(endpoint);
+        let resolved = (self.resolve)(endpoint);
         if let Ok(addr) = resolved
             && let Err(e) = self.store.save_endpoint(endpoint, addr)
         {

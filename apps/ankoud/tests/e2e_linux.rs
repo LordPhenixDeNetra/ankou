@@ -350,16 +350,34 @@ fn connects_and_routes_all_traffic() {
     stop_daemon(daemon);
 }
 
+/// Arrêt du service pendant une connexion : tunnel retiré, protection gardée ; au
+/// redémarrage, la connexion reprend ; seul `disconnect` lève la protection.
 #[test]
 #[ignore]
-fn daemon_stop_removes_interface() {
+fn daemon_stop_keeps_protection() {
     let (lab, config) = Lab::new(true, true);
-    let daemon = spawn_daemon(lab.dir.path());
-    connect(lab.dir.path(), &config);
+    let dir = lab.dir.path();
+    let daemon = spawn_daemon(dir);
+    connect(dir, &config);
     let route = run(&["ip", "-n", CLIENT_NS, "route", "get", "10.200.0.1"]);
     assert!(route.contains("dev ankou0"), "trafic hors tunnel : {route}");
     stop_daemon(daemon);
+    assert!(!succeeds(&[
+        "ip", "-n", CLIENT_NS, "link", "show", "ankou0"
+    ]));
+    assert!(!reachable("192.168.77.2"), "fuite après l'arrêt du service");
+    let daemon = spawn_daemon(dir);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !cli(dir, &["status"]).1.contains("Connected to") {
+        assert!(
+            Instant::now() < deadline,
+            "pas de reprise après redémarrage"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert_eq!(cli(dir, &["disconnect"]).0, Some(0));
     assert_clean();
+    stop_daemon(daemon);
 }
 
 #[test]
