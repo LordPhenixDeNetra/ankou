@@ -9,9 +9,9 @@ use ankou_api_client::{
     ApiClient, ClientError, Session, load_servers, save_servers, servers_cache_path, to_entries,
 };
 use ankou_ipc::IpcError;
-use ankou_proto::ErrorCode;
 use ankou_proto::api::ServerInfo;
 use ankou_proto::ipc::{ClientToDaemon, DaemonToClient, Status};
+use ankou_proto::{ErrorCode, TunnelConfig};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -100,8 +100,10 @@ async fn main(
     let (status_tx, status_rx) = watch::channel(None);
     let follow = tokio::spawn(follow_daemon(socket.clone(), out.clone(), status_tx));
     let stats = tokio::spawn(poll_stats(socket.clone(), out.clone(), status_rx));
+    // Appareil enregistré par l'API mais pas encore remis au service.
+    let mut enrolled = None;
     while let Some(r) = requests.recv().await {
-        let done = match handle(r, &socket, session.as_deref(), &out).await {
+        let done = match handle(r, &socket, session.as_deref(), &mut enrolled, &out).await {
             Ok(()) => Update::Finished,
             Err(p) => Update::Failed(p),
         };
@@ -222,6 +224,24 @@ fn outcome(reply: DaemonToClient, out: &Out) -> Result<(), Problem> {
     }
 }
 
+/// Remet la configuration enrôlée au service, qui la garde (0600, root) : rien n'est écrit
+/// côté utilisateur. En cas d'échec, elle reste en attente pour le prochain essai.
+async fn hand_over(
+    socket: &Path,
+    enrolled: &mut Option<TunnelConfig>,
+    out: &Out,
+) -> Result<(), Problem> {
+    let Some(config) = enrolled.clone() else {
+        return Ok(());
+    };
+    let msg = ClientToDaemon::Connect {
+        config: Some(config),
+    };
+    outcome(ask(socket, msg).await?, out)?;
+    *enrolled = None;
+    Ok(())
+}
+
 fn session_file(session: Option<&Path>) -> Result<&Path, Problem> {
     session.ok_or_else(|| {
         Problem::Api(ClientError::Io(
@@ -274,6 +294,7 @@ async fn handle(
     r: Request,
     socket: &Path,
     session: Option<&Path>,
+    enrolled: &mut Option<TunnelConfig>,
     out: &Out,
 ) -> Result<(), Problem> {
     match r {
@@ -340,16 +361,16 @@ async fn handle(
             signed_in(path, &client, out)
         }
         Request::Enroll { name } => {
-            let path = session_file(session)?;
-            let mut client = saved_client(path)?;
-            let result = client.new_device(&name, None).await;
-            keep_session(path, &client)?;
-            let (config, _server) = result.map_err(Problem::Api)?;
-            // Le service garde le profil (0600, root) : rien n'est écrit côté utilisateur.
-            let msg = ClientToDaemon::Connect {
-                config: Some(config),
-            };
-            outcome(ask(socket, msg).await?, out)
+            // Un essai précédent a déjà enregistré une clé : la reprendre, sans
+            // consommer un nouvel appareil.
+            if enrolled.is_none() {
+                let path = session_file(session)?;
+                let mut client = saved_client(path)?;
+                let result = client.new_device(&name, None).await;
+                keep_session(path, &client)?;
+                *enrolled = Some(result.map_err(Problem::Api)?.0);
+            }
+            hand_over(socket, enrolled, out).await
         }
         Request::Logout => {
             let path = session_file(session)?;
@@ -361,5 +382,37 @@ async fn handle(
             out.send(Update::Account { session: None });
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod tests {
+    use super::*;
+
+    fn config() -> TunnelConfig {
+        toml::from_str(
+            "[interface]\nprivate_key = \"yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\"\n\
+             address = [\"10.8.0.2/32\"]\n[peer]\n\
+             public_key = \"xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\"\n\
+             endpoint = \"127.0.0.1:51820\"\nallowed_ips = [\"0.0.0.0/0\"]\n",
+        )
+        .unwrap()
+    }
+
+    /// Le service refuse le profil : la clé déjà enregistrée par l'API est gardée pour
+    /// le prochain essai, qui ne consomme pas un nouvel appareil.
+    #[tokio::test]
+    async fn failed_hand_over_keeps_the_enrolled_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let out = Out {
+            tx,
+            wake: Arc::new(|| {}),
+        };
+        let mut pending = Some(config());
+        let missing = dir.path().join("absent.sock");
+        assert!(hand_over(&missing, &mut pending, &out).await.is_err());
+        assert_eq!(pending, Some(config()));
     }
 }

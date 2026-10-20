@@ -1031,3 +1031,22 @@ async fn stats_reported_while_connected() {
     assert_eq!(ask(&mut c, ClientToDaemon::GetStats).await, zero);
     d.stop().await;
 }
+
+#[tokio::test]
+async fn unreadable_stats_are_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let tunnel = FakeTunnel::default();
+    let d = Daemon::start(dir.path(), tunnel.clone()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    tunnel.fail_stats(true);
+    let mut c = d.client().await;
+    assert!(matches!(
+        ask(&mut c, ClientToDaemon::GetStats).await,
+        DaemonToClient::Failed {
+            code: ErrorCode::Internal,
+            ..
+        }
+    ));
+    d.stop().await;
+}

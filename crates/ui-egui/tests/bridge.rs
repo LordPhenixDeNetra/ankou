@@ -239,3 +239,21 @@ async fn incompatible_daemon_is_reported() {
     drop(b);
     server.abort();
 }
+
+#[tokio::test]
+async fn bridge_reports_loss_then_recovers() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = socket_in(dir.path());
+    let d = start_daemon(dir.path(), &socket, FakeTunnel::default()).await;
+    let b = bridge(&socket, dir.path());
+    next_matching(&b, WAIT, |u| matches!(u, Update::Link(Link::Ready))).await;
+    d.stop().await;
+    next_matching(&b, WAIT, |u| matches!(u, Update::Link(Link::Missing))).await;
+    let d = start_daemon(dir.path(), &socket, FakeTunnel::default()).await;
+    next_matching(&b, Duration::from_secs(5), |u| {
+        matches!(u, Update::Link(Link::Ready))
+    })
+    .await;
+    drop(b);
+    d.stop().await;
+}

@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 pub fn show(s: &mut Screen, ui: &mut egui::Ui) {
     if s.model.servers.is_empty() && !s.servers_requested && s.model.session.is_some() {
         s.servers_requested = true;
-        s.outbox.push(Request::RefreshServers);
+        s.send(Request::RefreshServers);
     }
     ui.horizontal(|ui| {
         let label = ui.label(t!(&s.loc, "ui-search"));

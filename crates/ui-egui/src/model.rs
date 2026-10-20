@@ -170,20 +170,27 @@ impl Default for Model {
 impl Model {
     pub fn apply(&mut self, u: Update) {
         match u {
-            Update::Link(link) => self.link = link,
+            Update::Link(link) => {
+                // Service perdu : son dernier statut ne dit plus rien du tunnel.
+                if link != Link::Ready {
+                    self.status = None;
+                    self.clear_traffic();
+                }
+                self.link = link;
+            }
             Update::Status(status) => {
                 if matches!(status, Status::Connected { .. }) {
                     self.needs_enroll = false;
                 } else {
-                    self.rx = 0;
-                    self.tx = 0;
-                    self.rate = Rate::default();
-                    self.last_sample = None;
+                    self.clear_traffic();
                 }
                 self.status = Some(status);
             }
             Update::Settings(s) => self.settings = Some(s),
             Update::Traffic { rx, tx, at } => {
+                if !matches!(self.status, Some(Status::Connected { .. })) {
+                    return;
+                }
                 if let Some(prev) = self.last_sample {
                     self.rate = rate(prev, (rx, tx, at));
                 }
@@ -208,6 +215,13 @@ impl Model {
             }
             Update::Finished => self.busy = false,
         }
+    }
+
+    fn clear_traffic(&mut self) {
+        self.rx = 0;
+        self.tx = 0;
+        self.rate = Rate::default();
+        self.last_sample = None;
     }
 
     /// Le service répond et aucune requête n'est en cours.
@@ -376,5 +390,35 @@ mod tests {
             password: "s3cret".into(),
         };
         assert!(!format!("{r:?}").contains("s3cret"));
+    }
+
+    #[test]
+    fn losing_the_daemon_forgets_the_status() {
+        let mut m = Model::default();
+        m.apply(Update::Link(Link::Ready));
+        m.apply(Update::Status(Status::Connected {
+            server: "vps1".into(),
+            since: 1,
+        }));
+        m.apply(Update::Traffic {
+            rx: 5,
+            tx: 5,
+            at: Instant::now(),
+        });
+        m.apply(Update::Link(Link::Missing));
+        assert_eq!(m.status, None);
+        assert_eq!((m.rx, m.tx), (0, 0));
+    }
+
+    #[test]
+    fn traffic_outside_connected_is_ignored() {
+        let mut m = Model::default();
+        m.apply(Update::Status(Status::Disconnected));
+        m.apply(Update::Traffic {
+            rx: 9,
+            tx: 9,
+            at: Instant::now(),
+        });
+        assert_eq!((m.rx, m.tx), (0, 0));
     }
 }

@@ -86,6 +86,16 @@ fn tray_view(s: &Screen) -> TrayView {
     }
 }
 
+/// Fenêtre fermée avec une icône présente : cachée, ou réduite sous Wayland où winit ne
+/// sait pas cacher (sinon le bouton de fermeture ne ferait rien).
+fn hide_command(wayland: bool) -> egui::ViewportCommand {
+    if wayland {
+        egui::ViewportCommand::Minimized(true)
+    } else {
+        egui::ViewportCommand::Visible(false)
+    }
+}
+
 impl App {
     /// Requêtes de l'écran vers le pont, nouvel état vers l'icône.
     fn flush(&mut self) {
@@ -108,6 +118,7 @@ impl App {
             TrayAction::Fastest => Request::ConnectFastest,
             TrayAction::Open => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 return;
             }
@@ -135,7 +146,8 @@ impl eframe::App for App {
         // Avec une icône, fermer la fenêtre la cache ; le menu « Quitter » ferme vraiment.
         if self.tray.is_some() && !self.quitting && ctx.input(|i| i.viewport().close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+            ctx.send_viewport_cmd(hide_command(wayland));
         }
         self.flush();
     }
@@ -143,5 +155,18 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ui, |ui| self.screen.show(ui));
         self.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hide_command;
+    use egui::ViewportCommand;
+
+    #[test]
+    fn hiding_minimizes_on_wayland() {
+        // winit ne sait pas cacher une fenêtre sous Wayland : elle y est réduite.
+        assert_eq!(hide_command(true), ViewportCommand::Minimized(true));
+        assert_eq!(hide_command(false), ViewportCommand::Visible(false));
     }
 }

@@ -393,4 +393,16 @@ pub(crate) mod tests {
         assert_eq!(crate::prefs::load_prefs(dir.path()).favourites, ["a"]);
         h.get_by_label("★");
     }
+
+    #[test]
+    fn automatic_server_refresh_counts_as_busy() {
+        let mut s = ready(Status::Disconnected);
+        s.model.apply(Update::Account {
+            session: Some("https://api.example.org".into()),
+        });
+        s.tab = Tab::Servers;
+        let h = harness(s);
+        assert_eq!(h.state().outbox, [Request::RefreshServers]);
+        assert!(h.state().model.busy);
+    }
 }

@@ -237,10 +237,14 @@ impl Actor {
         }
     }
 
-    /// Compteurs du tunnel quand il est établi, sinon (ou s'ils sont illisibles) zéro.
+    /// Compteurs du tunnel quand il est établi, sinon zéro. Illisibles : erreur, pas un
+    /// faux zéro (le client en tirerait un débit énorme au relevé suivant).
     fn traffic(&self) -> DaemonToClient {
         let stats = match self.status {
-            Status::Connected { .. } => self.tunnel.stats().unwrap_or_default(),
+            Status::Connected { .. } => match self.tunnel.stats() {
+                Ok(stats) => stats,
+                Err(e) => return failed(ErrorCode::Internal, e.to_string()),
+            },
             _ => ankou_platform::TunnelStats::default(),
         };
         DaemonToClient::Stats {
