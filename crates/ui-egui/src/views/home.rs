@@ -12,7 +12,10 @@ pub fn show(s: &mut Screen, ui: &mut egui::Ui) {
     let status = s.model.status.clone();
     card(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.colored_label(status_color(tone(status.as_ref())), "●");
+            // Disque dessiné : la police par défaut n'a pas le caractère « ● ».
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+            ui.painter()
+                .circle_filled(rect.center(), 7.0, status_color(tone(status.as_ref())));
             ui.heading(state_text(s, status.as_ref()));
         });
         if let Some(Status::Blocked { reason: code } | Status::Error { code, .. }) = &status {
@@ -56,7 +59,7 @@ pub fn show(s: &mut Screen, ui: &mut egui::Ui) {
     }
 }
 
-fn state_text(s: &Screen, status: Option<&Status>) -> String {
+pub(crate) fn state_text(s: &Screen, status: Option<&Status>) -> String {
     let loc = &s.loc;
     match status {
         None => t!(loc, "ui-state-unknown"),

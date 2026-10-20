@@ -1,0 +1,17 @@
+[package]
+name = "ankou"
+description = "Application graphique d'aNkou (egui)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ankou-proto.workspace = true
+ankou-ui-egui.workspace = true
+lpdnsoft-log.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true

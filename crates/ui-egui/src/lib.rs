@@ -1,11 +1,14 @@
 //! Interface graphique d'aNkou (spec §6.9) : une télécommande du service `ankoud`.
 
+mod app;
 pub mod bridge;
 pub mod model;
 pub mod prefs;
 pub mod screen;
+pub mod tray;
 mod views;
 
+pub use app::run;
 use lpdnsoft_i18n::{LanguageIdentifier, Localizer, Resource, langid};
 
 #[derive(Debug, thiserror::Error)]

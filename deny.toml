@@ -5,6 +5,17 @@ all-features = true
 version = 2
 yanked = "deny"
 unmaintained = "all"
+ignore = [
+    # zbus_names, zvariant, zvariant_derive : fusionnés dans zbus 6, qui les remplace.
+    # Encore tirés par zbus 5 (accessibilité d'eframe, icône ksni) ; pas de faille,
+    # aucune version corrigée. À retirer quand eframe et ksni passeront à zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant fusionné dans zbus 6 ; zbus 5 via eframe et ksni" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names fusionné dans zbus 6 ; zbus 5 via eframe et ksni" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive fusionné dans zbus 6 ; zbus 5 via eframe et ksni" },
+    # webpki-roots 0.26.11 (tokio-tungstenite) ne fait que réexporter webpki-roots 1, verrouillé
+    # en 1.0.10, qui retire la racine emSign : faux positif sur la coquille 0.26.
+    { id = "RUSTSEC-2026-0381", reason = "0.26.11 réexporte webpki-roots 1.0.10, corrigé" },
+]
 
 [licenses]
 version = 2

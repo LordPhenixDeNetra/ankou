@@ -39,3 +39,5 @@ L'étape 3 est terminée quand les runbooks 3a, 3b et 3c passent.
 - La charge des serveurs n'est pas encore prise en compte (l'API ne la publie pas) : seule la latence compte.
 - Mesurer pendant une connexion peut faire perdre quelques paquets au tunnel courant, juste avant de changer de serveur.
 - La liste vient de l'API : il faut une session valide (`ankou-cli login`). Chaque `ankou-cli servers` ou `--fastest` réussi l'enregistre à côté de la session ; si l'API est injoignable (serveur courant hors service, kill switch), cette dernière liste connue est utilisée (« API injoignable : dernière liste de serveurs connue utilisée. »).
+
+Suite : l'application graphique, `etape-4-interface.md`.

@@ -20,6 +20,9 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing = "0.1"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni.workspace = true
+
 [dev-dependencies]
 ankou-daemon.workspace = true
 ankou-platform = { workspace = true, features = ["fake"] }
