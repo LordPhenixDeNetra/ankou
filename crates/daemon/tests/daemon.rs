@@ -1001,3 +1001,52 @@ async fn fastest_without_any_profile_fails() {
     );
     d.stop().await;
 }
+
+#[tokio::test]
+async fn stats_reported_while_connected() {
+    let dir = tempfile::tempdir().unwrap();
+    let tunnel = FakeTunnel::default();
+    tunnel.set_traffic(1_000, 2_000);
+    let d = Daemon::start(dir.path(), tunnel).await;
+    let mut w = d.watcher().await;
+    let mut c = d.client().await;
+    let zero = DaemonToClient::Stats {
+        rx_bytes: 0,
+        tx_bytes: 0,
+    };
+    assert_eq!(ask(&mut c, ClientToDaemon::GetStats).await, zero);
+    connect_now(&d, &mut w).await;
+    assert_eq!(
+        ask(&mut c, ClientToDaemon::GetStats).await,
+        DaemonToClient::Stats {
+            rx_bytes: 1_000,
+            tx_bytes: 2_000
+        }
+    );
+    assert_eq!(
+        ask(&mut c, ClientToDaemon::Disconnect).await,
+        DaemonToClient::Done
+    );
+    wait_status(&mut w, |s| *s == Status::Disconnected).await;
+    assert_eq!(ask(&mut c, ClientToDaemon::GetStats).await, zero);
+    d.stop().await;
+}
+
+#[tokio::test]
+async fn unreadable_stats_are_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let tunnel = FakeTunnel::default();
+    let d = Daemon::start(dir.path(), tunnel.clone()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    tunnel.fail_stats(true);
+    let mut c = d.client().await;
+    assert!(matches!(
+        ask(&mut c, ClientToDaemon::GetStats).await,
+        DaemonToClient::Failed {
+            code: ErrorCode::Internal,
+            ..
+        }
+    ));
+    d.stop().await;
+}

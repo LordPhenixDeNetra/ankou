@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=aNkou
+Comment=VPN client
+Comment[fr]=Client VPN
+Exec=ankou
+Icon=network-vpn
+Terminal=false
+Categories=Network;

@@ -5,6 +5,17 @@ all-features = true
 version = 2
 yanked = "deny"
 unmaintained = "all"
+ignore = [
+    # zbus_names, zvariant, zvariant_derive : fusionnés dans zbus 6, qui les remplace.
+    # Encore tirés par zbus 5 (accessibilité d'eframe, icône ksni) ; pas de faille,
+    # aucune version corrigée. À retirer quand eframe et ksni passeront à zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant fusionné dans zbus 6 ; zbus 5 via eframe et ksni" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names fusionné dans zbus 6 ; zbus 5 via eframe et ksni" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive fusionné dans zbus 6 ; zbus 5 via eframe et ksni" },
+    # webpki-roots 0.26.11 (tokio-tungstenite) ne fait que réexporter webpki-roots 1, verrouillé
+    # en 1.0.10, qui retire la racine emSign : faux positif sur la coquille 0.26.
+    { id = "RUSTSEC-2026-0381", reason = "0.26.11 réexporte webpki-roots 1.0.10, corrigé" },
+]
 
 [licenses]
 version = 2
@@ -21,6 +32,10 @@ allow = [
     "Zlib",
     # Zero-Clause BSD : plus permissive que MIT (dépendances d'interprocess).
     "0BSD",
+    # Boost : permissive (clipboard-win, error-code, via egui sous Windows).
+    "BSL-1.0",
+    # Domaine public (ksni, icône de notification).
+    "Unlicense",
 ]
 
 [bans]
@@ -46,3 +61,9 @@ allow = ["CDLA-Permissive-2.0"]
 [[licenses.exceptions]]
 crate = "webpki-root-certs"
 allow = ["CDLA-Permissive-2.0"]
+
+# epaint_default_fonts : polices embarquées par egui (OFL et licence des polices Ubuntu),
+# qui ne s'étendent pas au code qui les affiche.
+[[licenses.exceptions]]
+crate = "epaint_default_fonts"
+allow = ["OFL-1.1", "Ubuntu-font-1.0"]

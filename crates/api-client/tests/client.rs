@@ -89,6 +89,24 @@ async fn register_login_enroll_flow(pool: PgPool) {
 
 #[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
 #[ignore = "PostgreSQL requis"]
+async fn new_device_builds_tunnel_config(pool: PgPool) {
+    let api = serve(pool).await;
+    let mut client = registered(&api).await;
+    assert!(matches!(
+        client.new_device("Laptop", Some("nope")).await,
+        Err(ankou_api_client::ClientError::UnknownServer(n)) if n == "nope"
+    ));
+    let (config, server) = client.new_device("Laptop", None).await.unwrap();
+    assert_eq!(server, "vps1");
+    assert_eq!(
+        config.interface.address,
+        vec!["10.8.0.2/32".parse().unwrap()]
+    );
+    assert_eq!(config.peer.allowed_ips, vec!["0.0.0.0/0".parse().unwrap()]);
+}
+
+#[sqlx::test(migrator = "ankou_server_store::MIGRATOR")]
+#[ignore = "PostgreSQL requis"]
 async fn client_refreshes_expired_access_token(pool: PgPool) {
     let api = serve(pool).await;
     let mut client = registered(&api).await;

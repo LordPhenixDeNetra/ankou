@@ -3,7 +3,7 @@
 use crate::{Endpoint, ErrorCode, PublicKey, TunnelConfig};
 use serde::{Deserialize, Serialize};
 
-pub const IPC_PROTOCOL_VERSION: u32 = 1;
+pub const IPC_PROTOCOL_VERSION: u32 = 2;
 /// Taille maximale d'une trame (longueur `u32` + JSON).
 pub const MAX_FRAME: u32 = 1 << 20;
 /// Serveurs mesurés au plus par `ConnectFastest` (les suivants sont ignorés).
@@ -39,6 +39,8 @@ pub enum ClientToDaemon {
     SetSettings {
         settings: DaemonSettings,
     },
+    /// Octets du tunnel (protocole 2).
+    GetStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,6 +70,11 @@ pub enum DaemonToClient {
     Failed {
         code: ErrorCode,
         detail: String,
+    },
+    /// Octets reçus et envoyés par le tunnel ; `0` hors de l'état `Connected`.
+    Stats {
+        rx_bytes: u64,
+        tx_bytes: u64,
     },
 }
 

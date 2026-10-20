@@ -1,10 +1,11 @@
 //! Sous-commandes qui parlent à l'API : compte, connexion, serveurs, enrôlement.
 
 use crate::create_private;
-use ankou_api_client::{ApiClient, ClientError, Session, session_path};
-use ankou_proto::api::ServerInfo;
+use ankou_api_client::{
+    ApiClient, ClientError, Session, load_servers, save_servers, servers_cache_path, session_path,
+    to_entries,
+};
 use ankou_proto::ipc::ServerEntry;
-use ankou_proto::{DEFAULT_KEEPALIVE, InterfaceSection, PeerSection, PrivateKey, TunnelConfig};
 use lpdnsoft_i18n::{Localizer, t};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,6 +27,8 @@ fn client_error(loc: &Localizer, e: ClientError) -> Shown {
         ),
         ClientError::Network(detail) => t!(loc, "cli-network-error", detail = detail.as_str()),
         ClientError::Io(detail) => t!(loc, "cli-local-error", detail = detail.as_str()),
+        ClientError::NoServer => t!(loc, "cli-no-server"),
+        ClientError::UnknownServer(name) => t!(loc, "cli-unknown-server", name = name.as_str()),
     })
 }
 
@@ -58,23 +61,6 @@ fn save(loc: &Localizer, client: &ApiClient) -> Outcome {
         Some(s) => s.save(&path(loc)?).map_err(|e| client_error(loc, e)),
         None => Ok(()),
     }
-}
-
-/// Dernière liste des serveurs, à côté de la session : sert quand l'API est injoignable
-/// (serveur courant hors service, kill switch), justement quand on veut en changer.
-fn servers_cache(loc: &Localizer) -> Result<PathBuf, Shown> {
-    Ok(path(loc)?.with_file_name("servers.json"))
-}
-
-fn save_servers(loc: &Localizer, servers: &[ServerInfo]) {
-    if let (Ok(p), Ok(json)) = (servers_cache(loc), serde_json::to_vec(servers)) {
-        let _ = std::fs::write(p, json);
-    }
-}
-
-fn cached_servers(loc: &Localizer) -> Option<Vec<ServerInfo>> {
-    let bytes = std::fs::read(servers_cache(loc).ok()?).ok()?;
-    serde_json::from_slice(&bytes).ok()
 }
 
 /// Client prêt à l'emploi depuis la session enregistrée.
@@ -134,7 +120,7 @@ pub async fn servers(loc: &Localizer) -> Outcome {
     let result = client.servers().await;
     save(loc, &client)?;
     let servers = result.map_err(|e| client_error(loc, e))?;
-    save_servers(loc, &servers);
+    save_servers(&servers_cache_path(&path(loc)?), &servers);
     for s in servers {
         let endpoint = s.endpoint.to_string();
         println!(
@@ -168,8 +154,10 @@ pub async fn enroll(loc: &Localizer, name: &str, out: &Path, server: Option<&str
         }
         Err(e) => return Err(local_error(loc, e)),
     };
-    let result = register_device(loc, &mut client, name, server)
+    let result = client
+        .new_device(name, server)
         .await
+        .map_err(|e| client_error(loc, e))
         .and_then(|(config, server)| {
             let text = toml::to_string(&config).map_err(|e| local_error(loc, e))?;
             file.write_all(text.as_bytes())
@@ -203,64 +191,6 @@ pub async fn enroll(loc: &Localizer, name: &str, out: &Path, server: Option<&str
     Ok(())
 }
 
-/// Choisit le serveur (avant l'enrôlement : un nom faux ne consomme pas d'appareil),
-/// enregistre une nouvelle clé et renvoie la configuration du tunnel et le nom du serveur.
-async fn register_device(
-    loc: &Localizer,
-    client: &mut ApiClient,
-    name: &str,
-    server: Option<&str>,
-) -> Result<(TunnelConfig, String), Shown> {
-    let servers = client.servers().await.map_err(|e| client_error(loc, e))?;
-    let chosen = match server {
-        None => servers
-            .into_iter()
-            .next()
-            .ok_or_else(|| Shown(t!(loc, "cli-no-server")))?,
-        Some(n) => servers
-            .into_iter()
-            .find(|s| s.name == n)
-            .ok_or_else(|| Shown(t!(loc, "cli-unknown-server", name = n)))?,
-    };
-    let key = PrivateKey::generate();
-    let enrolled = client
-        .enroll(name, &key.public_key())
-        .await
-        .map_err(|e| client_error(loc, e))?;
-    let config = TunnelConfig {
-        interface: InterfaceSection {
-            private_key: key,
-            address: enrolled.address,
-            dns: Vec::new(),
-        },
-        peer: PeerSection {
-            public_key: chosen.public_key,
-            endpoint: chosen.endpoint,
-            allowed_ips: vec![ipnet::Ipv4Net::default().into()],
-            persistent_keepalive: DEFAULT_KEEPALIVE,
-        },
-    };
-    Ok((config, chosen.name))
-}
-
-/// Candidats au choix automatique : pays sans casse, étiquette exacte, ordre de l'API.
-pub fn filter_servers(
-    servers: Vec<ServerInfo>,
-    country: Option<&str>,
-    tag: Option<&str>,
-) -> Vec<ServerEntry> {
-    servers
-        .into_iter()
-        .filter(|s| country.is_none_or(|c| s.country.eq_ignore_ascii_case(c)))
-        .filter(|s| tag.is_none_or(|t| s.tags.iter().any(|x| x == t)))
-        .map(|s| ServerEntry {
-            name: s.name,
-            public_key: s.public_key,
-            endpoint: s.endpoint,
-        })
-        .collect()
-}
-
 /// Liste filtrée des serveurs, depuis l'API (session enregistrée) ; message traduit sinon.
 pub async fn fastest_candidates(
     loc: &Localizer,
@@ -270,12 +200,13 @@ pub async fn fastest_candidates(
     let mut client = saved_client(loc).map_err(|Shown(m)| m)?;
     let result = client.servers().await;
     save(loc, &client).map_err(|Shown(m)| m)?;
+    let cache = servers_cache_path(&path(loc).map_err(|Shown(m)| m)?);
     let servers = match result {
         Ok(servers) => {
-            save_servers(loc, &servers);
+            save_servers(&cache, &servers);
             servers
         }
-        Err(ClientError::Network(detail)) => match cached_servers(loc) {
+        Err(ClientError::Network(detail)) => match load_servers(&cache) {
             Some(servers) => {
                 eprintln!("{}", t!(loc, "cli-servers-cached"));
                 servers
@@ -284,7 +215,7 @@ pub async fn fastest_candidates(
         },
         Err(e) => return Err(client_error(loc, e).0),
     };
-    let candidates = filter_servers(servers, country, tag);
+    let candidates = to_entries(servers, country, tag);
     if candidates.is_empty() {
         return Err(t!(
             loc,
@@ -294,44 +225,4 @@ pub async fn fastest_candidates(
         ));
     }
     Ok(candidates)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::filter_servers;
-    use ankou_proto::PrivateKey;
-    use ankou_proto::api::ServerInfo;
-
-    fn info(name: &str, country: &str, tags: &[&str]) -> ServerInfo {
-        ServerInfo {
-            id: uuid::Uuid::nil(),
-            name: name.into(),
-            country: country.into(),
-            city: "x".into(),
-            endpoint: "1.2.3.4:51820".parse().unwrap(),
-            public_key: PrivateKey::generate().public_key(),
-            tags: tags.iter().map(|t| (*t).into()).collect(),
-        }
-    }
-
-    #[test]
-    fn filter_servers_by_country_and_tag() {
-        let all = || {
-            vec![
-                info("a", "FR", &[]),
-                info("b", "fr", &["streaming"]),
-                info("c", "DE", &["streaming"]),
-            ]
-        };
-        let names = |v: Vec<ankou_proto::ipc::ServerEntry>| -> Vec<String> {
-            v.into_iter().map(|e| e.name).collect()
-        };
-        assert_eq!(names(filter_servers(all(), Some("FR"), None)), ["a", "b"]);
-        assert_eq!(
-            names(filter_servers(all(), Some("fr"), Some("streaming"))),
-            ["b"]
-        );
-        assert!(filter_servers(all(), None, Some("p2p")).is_empty());
-        assert_eq!(names(filter_servers(all(), None, None)), ["a", "b", "c"]);
-    }
 }
