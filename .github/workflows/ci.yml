@@ -238,7 +238,8 @@ jobs:
           endpoint = "192.0.2.1:51820"
           allowed_ips = ["10.8.0.0/16"]
           TOML
-          target/debug/ankou-cli connect --config ci.toml --wait 0 --lang en
+          # Code 1 attendu : sans serveur WireGuard en face, la connexion reste « en cours ».
+          target/debug/ankou-cli connect --config ci.toml --wait 0 --lang en || true
           for _ in $(seq 1 15); do
             if ifconfig utun100 >/dev/null 2>&1; then break; fi
             sleep 1
