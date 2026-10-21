@@ -1,0 +1,7 @@
+#!/bin/sh
+# Démon launchd d'aNkou (ADR 0010) : droits exigés par launchd, puis démarrage.
+set -e
+plist=/Library/LaunchDaemons/fr.lpdnsoft.ankoud.plist
+chown root:wheel "$plist"
+chmod 644 "$plist"
+launchctl bootstrap system "$plist"

@@ -6,6 +6,7 @@ use std::path::Path;
 fn version(lang: &str) -> String {
     let out = Command::cargo_bin("ankou-cli")
         .unwrap()
+        .env("ANKOU_NO_UPDATE_CHECK", "1")
         .args(["version", "--lang", lang])
         .assert()
         .success();
@@ -14,12 +15,18 @@ fn version(lang: &str) -> String {
 
 #[test]
 fn version_in_french() {
-    assert_eq!(version("fr"), "aNkou 0.1.0 (protocole 1)\n");
+    assert_eq!(
+        version("fr"),
+        format!("aNkou {} (protocole 1)\n", env!("CARGO_PKG_VERSION"))
+    );
 }
 
 #[test]
 fn version_in_english() {
-    assert_eq!(version("en"), "aNkou 0.1.0 (protocol 1)\n");
+    assert_eq!(
+        version("en"),
+        format!("aNkou {} (protocol 1)\n", env!("CARGO_PKG_VERSION"))
+    );
 }
 
 #[test]

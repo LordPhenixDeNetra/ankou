@@ -12,7 +12,7 @@ Dans `LPDNSoft/ankou`, à jour :
 
 ```sh
 cargo build --release -p ankoud -p ankou-cli
-sudo install -m 755 target/release/ankoud target/release/ankou-cli /usr/local/bin/
+sudo install -m 755 target/release/ankoud target/release/ankou-cli /usr/bin/
 sudo groupadd --system ankou
 sudo usermod -aG ankou "$USER"
 sudo install -m 644 packaging/linux/ankoud.service /etc/systemd/system/

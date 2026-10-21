@@ -1,0 +1,5 @@
+#!/bin/sh
+# Mise à jour : l'ancien service est arrêté avant que ses fichiers soient remplacés.
+# La protection reste (ADR 0006) et le nouveau service se reconnecte.
+launchctl bootout system/fr.lpdnsoft.ankoud 2>/dev/null || true
+exit 0

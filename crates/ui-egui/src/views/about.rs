@@ -15,6 +15,12 @@ pub fn show(s: &mut Screen, ui: &mut egui::Ui) {
             "ui-about-version",
             version = ankou_proto::VERSION
         ));
+        if let Some(v) = &s.model.new_version {
+            ui.hyperlink_to(
+                t!(&s.loc, "ui-about-update", version = v.as_str()),
+                ankou_api_client::RELEASES_PAGE,
+            );
+        }
         ui.label(t!(&s.loc, "ui-about-license"));
         ui.hyperlink_to(t!(&s.loc, "ui-about-source"), SOURCE);
     });

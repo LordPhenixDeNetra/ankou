@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 # Root pour WireGuard et le routage ; groupe « ankou » : membres autorisés à piloter le VPN
 # par le socket /run/ankou/ankoud.sock (0660 grâce à UMask).
-ExecStart=/usr/local/bin/ankoud
+ExecStart=/usr/bin/ankoud
 Group=ankou
 UMask=0007
 RuntimeDirectory=ankou

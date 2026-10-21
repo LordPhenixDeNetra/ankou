@@ -109,6 +109,8 @@ pub enum Update {
         server: String,
         rtt_ms: u32,
     },
+    /// Version plus récente publiée (ADR 0011).
+    NewVersion(String),
     Failed(Problem),
     /// Fin d'une requête réussie.
     Finished,
@@ -144,6 +146,7 @@ pub struct Model {
     pub notice: Option<Notice>,
     /// Le service n'a pas de profil : l'appareil doit être enrôlé.
     pub needs_enroll: bool,
+    pub new_version: Option<String>,
     last_sample: Option<(u64, u64, Instant)>,
 }
 
@@ -162,6 +165,7 @@ impl Default for Model {
             busy: false,
             notice: None,
             needs_enroll: false,
+            new_version: None,
             last_sample: None,
         }
     }
@@ -203,6 +207,7 @@ impl Model {
                 self.servers_cached = cached;
             }
             Update::Account { session } => self.session = session,
+            Update::NewVersion(v) => self.new_version = Some(v),
             Update::Chosen { server, rtt_ms } => {
                 self.notice = Some(Notice::Chosen { server, rtt_ms });
             }

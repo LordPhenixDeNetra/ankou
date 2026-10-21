@@ -18,7 +18,7 @@ Dans `LPDNSoft/ankou`, à jour (et `LPDNSoft/lpdnsoft-libs` aussi, qui apporte `
 
 ```sh
 cargo build --release -p ankou -p ankoud -p ankou-cli
-sudo install -m 755 target/release/ankou target/release/ankoud target/release/ankou-cli /usr/local/bin/
+sudo install -m 755 target/release/ankou target/release/ankoud target/release/ankou-cli /usr/bin/
 sudo systemctl restart ankoud          # protocole IPC 2 : ankoud, ankou-cli et ankou vont ensemble
 install -Dm 644 packaging/linux/ankou.desktop ~/.local/share/applications/ankou.desktop
 ```

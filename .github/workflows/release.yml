@@ -1,0 +1,208 @@
+name: Release
+
+# ADR 0011 : à chaque PR, les paquets sont construits et installés pour essai ; un tag
+# `v*` (égal à la version du workspace) publie en plus la release, avec SHA256SUMS.
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "v$version" ]; then
+            echo "tag ${GITHUB_REF_NAME} différent de la version du workspace ($version)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # Ubuntu 22.04 : glibc 2.35, pour s'installer aussi sur Debian 12 et les Ubuntu récentes.
+  linux:
+    needs: version
+    runs-on: ubuntu-22.04
+    env:
+      V: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ankou
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/lpdnsoft-libs
+          path: lpdnsoft-libs
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ankou
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+      - name: Compilation
+        working-directory: ankou
+        run: cargo build --release -p ankou -p ankou-cli -p ankoud -p ankou-api -p ankou-node -p ankou-admin
+      - name: Paquets
+        working-directory: ankou
+        run: |
+          mkdir -p dist
+          cargo deb -p ankou --no-build -o "dist/ankou-$V-linux-x86_64.deb"
+          cargo generate-rpm -p apps/ankou -o "dist/ankou-$V-linux-x86_64.rpm"
+          server="ankou-server-$V"
+          mkdir -p "$server"
+          cp target/release/ankou-api target/release/ankou-node target/release/ankou-admin "$server/"
+          cp -r deploy "$server/"
+          tar czf "dist/ankou-server-$V-linux-x86_64.tar.gz" "$server"
+      - name: Essai du .deb (installation, service, désinstallation)
+        working-directory: ankou
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y "./dist/ankou-$V-linux-x86_64.deb"
+          getent group ankou
+          systemctl is-active ankoud
+          sleep 2
+          sudo ankou-cli status --lang en | grep Disconnected
+          sudo apt-get remove -y ankou
+          if systemctl is-active ankoud; then echo "service resté actif"; exit 1; fi
+      - name: Essai du .rpm (Fedora)
+        working-directory: ankou
+        run: |
+          docker run --rm -v "$PWD/dist:/dist" fedora:41 sh -euxc "
+            dnf install -y /dist/ankou-$V-linux-x86_64.rpm
+            getent group ankou
+            ankou-cli version --lang en
+            test -f /usr/lib/systemd/system/ankoud.service"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: ankou/dist/*
+
+  windows:
+    needs: version
+    runs-on: windows-2025
+    env:
+      V: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Chemins longs
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          path: ankou
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/lpdnsoft-libs
+          path: lpdnsoft-libs
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ankou
+      - name: Compilation
+        working-directory: ankou
+        run: cargo build --release -p ankou -p ankou-cli -p ankoud
+      - name: wireguard.dll (WireGuard LLC, signature vérifiée)
+        working-directory: ankou
+        run: |
+          Invoke-WebRequest https://download.wireguard.com/wireguard-nt/wireguard-nt-0.10.1.zip -OutFile wgnt.zip
+          Expand-Archive wgnt.zip -DestinationPath wgnt
+          $sig = Get-AuthenticodeSignature wgnt\wireguard-nt\bin\amd64\wireguard.dll
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'WireGuard LLC') {
+            throw "signature de wireguard.dll invalide : $($sig.Status) $($sig.SignerCertificate.Subject)"
+          }
+      - name: MSI
+        working-directory: ankou
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add --global WixToolset.Util.wixext/5.0.2
+          New-Item -ItemType Directory -Force dist | Out-Null
+          wix build packaging\windows\ankou.wxs -arch x64 -ext WixToolset.Util.wixext `
+            -d Version=$env:V -d BinDir=target\release -d Dll=wgnt\wireguard-nt\bin\amd64\wireguard.dll `
+            -o "dist\ankou-$env:V-windows-x86_64.msi"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Essai du MSI (installation, service, désinstallation)
+        working-directory: ankou
+        run: |
+          $msi = Resolve-Path "dist\ankou-$env:V-windows-x86_64.msi"
+          $p = Start-Process msiexec -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', 'install.log' -Wait -PassThru
+          if ($p.ExitCode) { Get-Content install.log -Tail 50; throw "installation : $($p.ExitCode)" }
+          if ((Get-Service ankoud).Status -ne 'Running') { throw "service ankoud arrêté" }
+          $out = (& "C:\Program Files\aNkou\ankou-cli.exe" status --lang en) -join "`n"
+          if ($out -notmatch 'Disconnected') { throw "status : $out" }
+          $p = Start-Process msiexec -ArgumentList '/x', "`"$msi`"", '/qn' -Wait -PassThru
+          if ($p.ExitCode) { throw "désinstallation : $($p.ExitCode)" }
+          if (Get-Service ankoud -ErrorAction SilentlyContinue) { throw "service ankoud resté" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: ankou/dist/*
+
+  # Les deux architectures sur un Mac Apple Silicon (x86_64 compilé en croisé).
+  macos:
+    needs: version
+    runs-on: macos-15
+    env:
+      V: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ankou
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/lpdnsoft-libs
+          path: lpdnsoft-libs
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ankou
+      - name: Compilation et paquets
+        working-directory: ankou
+        run: |
+          set -eux
+          mkdir -p dist
+          for arch in aarch64 x86_64; do
+            cargo build --release --target "$arch-apple-darwin" -p ankou -p ankou-cli -p ankoud
+            packaging/macos/build-pkg.sh "$V" "target/$arch-apple-darwin/release" "dist/ankou-$V-macos-$arch.pkg"
+          done
+      - name: Essai du .pkg (installation, service)
+        working-directory: ankou
+        run: |
+          set -eux
+          sudo installer -pkg "dist/ankou-$V-macos-aarch64.pkg" -target /
+          test -x /Applications/aNkou.app/Contents/MacOS/ankou
+          sudo launchctl print system/fr.lpdnsoft.ankoud | grep -q "state = running"
+          sleep 2
+          /usr/local/bin/ankou-cli status --lang en | grep Disconnected
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: ankou/dist/*
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [version, linux, windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: aNkou ${{ needs.version.outputs.version }}
+          files: dist/*
+          generate_release_notes: true

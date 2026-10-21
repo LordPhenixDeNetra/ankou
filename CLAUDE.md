@@ -13,7 +13,7 @@ LPDNSoft/
 └── ankou/          dépend de ../lpdnsoft-libs/crates/<nom>
 ```
 
-## Structure (étapes 1 à 5b)
+## Structure (étapes 1 à 5b et 7 ; v1.0.0 = fonctions 1 à 8, ADR 0011)
 
 - `crates/proto` — `ankou-proto` : constantes, `TunnelConfig` (fichier TOML du client), clés WireGuard (`PrivateKey` jamais affichée), `ErrorCode` stables.
 - `crates/core` — `ankou-core` : machine à états de connexion (spec §6.4), **aucune E/S** ; backoff 1 s → 30 s ; invariant kill switch testé par `proptest` ; choix du serveur (`median`, `fastest`, spec §6.5).
@@ -30,16 +30,17 @@ LPDNSoft/
 - `crates/server-domain` — `ankou-server-domain` : règles pures du serveur (e-mail, mot de passe ≥ 12 caractères, invitations, limite d'appareils, attribution d'adresses dans `10.8.0.0/16`, `hash_secret`). Aucune E/S.
 - `crates/server-store` — `ankou-server-store` : **seule** couche qui écrit du SQL (PostgreSQL, sqlx, migrations dans `migrations/`, `MIGRATOR`). Un déclencheur publie chaque ajout/révocation d'appareil sur le canal `ankou_peers` (`PeerChange`).
 - `crates/node` — `ankou-node-core` : réconciliation des pairs (`reconcile`), cache `peers.json`, trait `PeerBackend` (`WgBackend` Linux, `FakeBackend` feature `fake`), boucle WebSocket `run` avec backoff.
-- `crates/api-client` — `ankou-api-client` : `ApiClient` (https exigé hors machine locale, rafraîchissement du jeton sur 401), `Session` (`ANKOU_SESSION_FILE` ou `<config>/ankou/session.toml`, 0600) ; `new_device`, cache `servers.json`, `to_entries` (`src/device.rs`, partagés CLI/UI).
+- `crates/api-client` — `ankou-api-client` : `ApiClient` (https exigé hors machine locale, rafraîchissement du jeton sur 401), `Session` (`ANKOU_SESSION_FILE` ou `<config>/ankou/session.toml`, 0600) ; `new_device`, cache `servers.json`, `to_entries` (`src/device.rs`, partagés CLI/UI). Mises à jour (`src/update.rs`, ADR 0011) : `latest_release` (dernière release GitHub, `None` hors ligne), `newer_version` pur, `RELEASES_PAGE` ; affichées dans « À propos » et par `ankou-cli version` (sur stderr ; `ANKOU_NO_UPDATE_CHECK` les coupe).
 - `apps/ankou-api` — API REST `/v1` (axum) : bibliothèque `router()` + `main` (`serve`, `genkey`). Auth : ADR 0003. OpenAPI : `GET /v1/openapi.json`. Nodes : `GET /v1/nodes/ws` (jeton du node en `Bearer`), messages `ankou_proto::node` (`Hello` → `Welcome`, `FullSync`, `PeerAdded`, `PeerRemoved`, `Stats`), diffusion par `PeerHub` (ADR 0004).
 - `apps/ankou` — application graphique (`--lang en|fr`, socket surchargeable par `ANKOU_SOCKET`) ; lanceur `packaging/linux/ankou.desktop`.
-- `apps/ankoud` — service système du poste (root, ou service Windows `--service`) : `--socket` (défaut `/run/ankou/ankoud.sock`, `\\.\pipe\ankou` sous Windows, `/var/run/ankou/ankoud.sock` sous macOS, dossier `root:staff` 0750), `--state-dir` (défaut `/var/lib/ankou`, `C:\ProgramData\aNkou`, `/Library/Application Support/aNkou`) ; unité `packaging/linux/ankoud.service`. Sous Windows, `wireguard.dll` attendue dans `<dossier de l'exe>\resources-windows\binaries\wireguard-amd64.dll` (jamais commitée).
+- `apps/ankoud` — service système du poste (root, ou service Windows `--service`) : `--socket` (défaut `/run/ankou/ankoud.sock`, `\\.\pipe\ankou` sous Windows, `/var/run/ankou/ankoud.sock` sous macOS, dossier `root:staff` 0750), `--state-dir` (défaut `/var/lib/ankou`, `C:\ProgramData\aNkou`, `/Library/Application Support/aNkou`) ; unité `packaging/linux/ankoud.service` (`/usr/bin/ankoud`). Sous Windows, `wireguard.dll` attendue dans `<dossier de l'exe>\resources-windows\binaries\wireguard-amd64.dll` (jamais commitée).
 - `apps/ankou-node` — service des VPS : `--config /etc/ankou/node.toml`, ne gère que les pairs de `wg0` (Linux).
 - `apps/ankou-admin` — invitations, serveurs (jeton de node), utilisateurs, appareils ; agit directement sur la base.
 - `apps/ankou-cli` — `version`, `init --out <fichier>`, `register`, `login`, `servers`, `enroll --name --out [--server]` (`src/account.rs`) ; `connect [--config <fichier>] [--wait s] [--fastest [--country CC] [--tag T]]`, `disconnect`, `status`, `autoconnect on|off`, `killswitch on|off` par l'IPC d'`ankoud` (`src/daemon.rs`, socket surchargeable par `ANKOU_SOCKET`) ; option globale `--lang en|fr`.
 - `locales/{en,fr}/ankou.ftl` — traductions Fluent, embarquées à la compilation.
 - `deploy/` — Caddyfile, unités systemd, exemples `api.toml` / `node.toml` (serveurs).
-- `packaging/linux/` — unité systemd d'`ankoud` (poste client) ; `packaging/macos/` — démon launchd `fr.lpdnsoft.ankoud.plist`.
+- `packaging/` — installeurs (ADR 0011) : `linux/` (unité systemd, lanceur, scripts `debian/` ; métadonnées `cargo-deb` et `cargo-generate-rpm` dans `apps/ankou/Cargo.toml`), `windows/ankou.wxs` (MSI WiX 5 : service, `wireguard.dll`, `PATH`), `macos/` (`build-pkg.sh`, `Info.plist`, scripts du `.pkg`, démon launchd `fr.lpdnsoft.ankoud.plist`). Toute désinstallation lance `ankou-cli disconnect` avant l'arrêt du service (sinon le kill switch resterait).
+- `.github/workflows/release.yml` — paquets construits et essayés à chaque PR ; tag `v<version du workspace>` → release GitHub (`ankou-<version>-<os>-<arch>.<ext>`, `SHA256SUMS`).
 - `xtask` — contrôles.
 
 ## Commande unique
@@ -61,7 +62,7 @@ cargo build -p ankou-cli -p ankoud
 sudo -E env "PATH=$PATH" cargo test -p ankoud --test e2e_linux -- --ignored --test-threads=1
 ```
 
-Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md` ; déploiement des 2 VPS (API, nodes, enrôlement) : `docs/runbooks/etape-2-deploiement.md` ; service `ankoud` sur le poste : `docs/runbooks/etape-3a-service.md` ; kill switch, DNS et IPv6 : `docs/runbooks/etape-3b-protection.md` ; serveur le plus rapide : `docs/runbooks/etape-3c-serveur-rapide.md` ; application graphique : `docs/runbooks/etape-4-interface.md` ; Windows : `docs/runbooks/etape-5a-windows.md` ; macOS : `docs/runbooks/etape-5b-macos.md`.
+Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md` ; déploiement des 2 VPS (API, nodes, enrôlement) : `docs/runbooks/etape-2-deploiement.md` ; service `ankoud` sur le poste : `docs/runbooks/etape-3a-service.md` ; kill switch, DNS et IPv6 : `docs/runbooks/etape-3b-protection.md` ; serveur le plus rapide : `docs/runbooks/etape-3c-serveur-rapide.md` ; application graphique : `docs/runbooks/etape-4-interface.md` ; Windows : `docs/runbooks/etape-5a-windows.md` ; macOS : `docs/runbooks/etape-5b-macos.md` ; release et installeurs : `docs/runbooks/etape-7-release.md`.
 
 ## Base de données (serveur)
 
