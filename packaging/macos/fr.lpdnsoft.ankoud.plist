@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Démon launchd d'aNkou (root) : /Library/LaunchDaemons/fr.lpdnsoft.ankoud.plist,
+     propriétaire root:wheel, droits 0644. Socket : /var/run/ankou/ankoud.sock (groupe staff). -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>fr.lpdnsoft.ankoud</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/ankoud</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Relancé après un plantage, pas après un arrêt demandé (code de sortie 0). -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardErrorPath</key>
+    <string>/Library/Logs/ankoud.log</string>
+</dict>
+</plist>

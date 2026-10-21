@@ -36,6 +36,8 @@ pub fn daemon_error_message(loc: &Localizer, e: &IpcError) -> String {
         IpcError::Io(io) if io.kind() == ErrorKind::PermissionDenied => {
             if cfg!(windows) {
                 t!(loc, "cli-daemon-denied-windows")
+            } else if cfg!(target_os = "macos") {
+                t!(loc, "cli-daemon-denied-macos")
             } else {
                 t!(loc, "cli-daemon-denied")
             }
@@ -48,6 +50,8 @@ pub fn daemon_error_message(loc: &Localizer, e: &IpcError) -> String {
         {
             if cfg!(windows) {
                 t!(loc, "cli-daemon-missing-windows")
+            } else if cfg!(target_os = "macos") {
+                t!(loc, "cli-daemon-missing-macos")
             } else {
                 t!(loc, "cli-daemon-missing")
             }
@@ -330,6 +334,8 @@ mod tests {
         // Chaque système dit comment démarrer son service et obtenir l'accès.
         let (start, access) = if cfg!(windows) {
             ("sc.exe start ankoud", "your own Windows session")
+        } else if cfg!(target_os = "macos") {
+            ("launchctl bootstrap system", "user account of this Mac")
         } else {
             ("systemctl enable --now ankoud", "usermod -aG ankou")
         };

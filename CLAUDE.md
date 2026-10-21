@@ -13,11 +13,11 @@ LPDNSoft/
 └── ankou/          dépend de ../lpdnsoft-libs/crates/<nom>
 ```
 
-## Structure (étapes 1 à 5a)
+## Structure (étapes 1 à 5b)
 
 - `crates/proto` — `ankou-proto` : constantes, `TunnelConfig` (fichier TOML du client), clés WireGuard (`PrivateKey` jamais affichée), `ErrorCode` stables.
 - `crates/core` — `ankou-core` : machine à états de connexion (spec §6.4), **aucune E/S** ; backoff 1 s → 30 s ; invariant kill switch testé par `proptest` ; choix du serveur (`median`, `fastest`, spec §6.5).
-- `crates/platform` — `ankou-platform` (Windows : `windows.rs` wireguard-nt + NRPT, `windows_firewall.rs` WFP persistant, `wfp_rules` pur, route par `netdev` hors cartes `ankou*` ; ADR 0009) : trait `Tunnel` (+ `Send`), implémentation Linux noyau (configuration par `defguard_wireguard_rs`, routage par `ip` comme `wg-quick`, ADR 0002), trait `SystemWatch` (route par défaut, horloge murale), trait `Firewall` (table nftables `inet ankou`, `nft_ruleset`), trait `Dns` (`resolvectl` sur `ankou0`), trait `Prober` (handshake mesuré sur interfaces temporaires `ankoup<n>`) ; `FakeTunnel`, `FakeWatch`, `FakeFirewall`, `FakeDns`, `FakeProber` pilotables (feature `fake`).
+- `crates/platform` — `ankou-platform` (Windows : `windows.rs` wireguard-nt + NRPT, `windows_firewall.rs` WFP persistant, `wfp_rules` pur, route par `netdev` hors cartes `ankou*`/`utun*` ; ADR 0009 ; macOS : `macos.rs` boringtun `WGApi<Userspace>` sur `utun100` (mesures `utun110+n`), DNS `networksetup` avec sauvegarde, `macos_firewall.rs` `pf` ancre `com.apple/ankou`, `pf_ruleset` pur ; ADR 0010) : trait `Tunnel` (+ `Send`), implémentation Linux noyau (configuration par `defguard_wireguard_rs`, routage par `ip` comme `wg-quick`, ADR 0002), trait `SystemWatch` (route par défaut, horloge murale), trait `Firewall` (table nftables `inet ankou`, `nft_ruleset`), trait `Dns` (`resolvectl` sur `ankou0`), trait `Prober` (handshake mesuré sur interfaces temporaires `ankoup<n>`) ; `FakeTunnel`, `FakeWatch`, `FakeFirewall`, `FakeDns`, `FakeProber` pilotables (feature `fake`).
 - `crates/ipc` — `ankou-ipc` : socket local (`interprocess`), trames `u32` + JSON (1 Mio max), poignée de main ; messages dans `ankou_proto::ipc` (protocole 2 : `GetStats`) ; Windows : named pipe `\\.\pipe\ankou`, ACL `PIPE_SDDL` ; feature `testing` (`test_socket`) pour les tests.
 - `crates/daemon` — `ankou-daemon` : `run(config, System { tunnel, firewall, dns, watch, resolve, prober }, stop)` ; acteur qui exécute la machine à états, surveillance toutes les 5 s (handshake, réseau, veille), profil, réglages (`auto_connect`, `kill_switch` activé par défaut) et cache d'endpoint dans le dossier d'état, sessions IPC (ADR 0005). Pare-feu selon l'état : posé avant chaque montée du tunnel, retiré en `Disconnected`/`Error` ; IPv6 toujours bloqué, IPv4 hors tunnel avec le kill switch ; DNS du tunnel à `Connected` ; reprise après crash si la table `ankou` est restée (ADR 0006). `ConnectFastest` : candidats mesurés en parallèle (16 au plus), plus petite médiane retenue (ADR 0007).
 - `crates/ui-egui` — `ankou-ui-egui` : interface egui 0.36 (rendu `glow`), ADR 0008 :
@@ -33,13 +33,13 @@ LPDNSoft/
 - `crates/api-client` — `ankou-api-client` : `ApiClient` (https exigé hors machine locale, rafraîchissement du jeton sur 401), `Session` (`ANKOU_SESSION_FILE` ou `<config>/ankou/session.toml`, 0600) ; `new_device`, cache `servers.json`, `to_entries` (`src/device.rs`, partagés CLI/UI).
 - `apps/ankou-api` — API REST `/v1` (axum) : bibliothèque `router()` + `main` (`serve`, `genkey`). Auth : ADR 0003. OpenAPI : `GET /v1/openapi.json`. Nodes : `GET /v1/nodes/ws` (jeton du node en `Bearer`), messages `ankou_proto::node` (`Hello` → `Welcome`, `FullSync`, `PeerAdded`, `PeerRemoved`, `Stats`), diffusion par `PeerHub` (ADR 0004).
 - `apps/ankou` — application graphique (`--lang en|fr`, socket surchargeable par `ANKOU_SOCKET`) ; lanceur `packaging/linux/ankou.desktop`.
-- `apps/ankoud` — service système du poste (root, ou service Windows `--service`) : `--socket` (défaut `/run/ankou/ankoud.sock`, `\\.\pipe\ankou` sous Windows), `--state-dir` (défaut `/var/lib/ankou`, `C:\ProgramData\aNkou`) ; unité `packaging/linux/ankoud.service`. Sous Windows, `wireguard.dll` attendue dans `<dossier de l'exe>\resources-windows\binaries\wireguard-amd64.dll` (jamais commitée).
+- `apps/ankoud` — service système du poste (root, ou service Windows `--service`) : `--socket` (défaut `/run/ankou/ankoud.sock`, `\\.\pipe\ankou` sous Windows, `/var/run/ankou/ankoud.sock` sous macOS, dossier `root:staff` 0750), `--state-dir` (défaut `/var/lib/ankou`, `C:\ProgramData\aNkou`, `/Library/Application Support/aNkou`) ; unité `packaging/linux/ankoud.service`. Sous Windows, `wireguard.dll` attendue dans `<dossier de l'exe>\resources-windows\binaries\wireguard-amd64.dll` (jamais commitée).
 - `apps/ankou-node` — service des VPS : `--config /etc/ankou/node.toml`, ne gère que les pairs de `wg0` (Linux).
 - `apps/ankou-admin` — invitations, serveurs (jeton de node), utilisateurs, appareils ; agit directement sur la base.
 - `apps/ankou-cli` — `version`, `init --out <fichier>`, `register`, `login`, `servers`, `enroll --name --out [--server]` (`src/account.rs`) ; `connect [--config <fichier>] [--wait s] [--fastest [--country CC] [--tag T]]`, `disconnect`, `status`, `autoconnect on|off`, `killswitch on|off` par l'IPC d'`ankoud` (`src/daemon.rs`, socket surchargeable par `ANKOU_SOCKET`) ; option globale `--lang en|fr`.
 - `locales/{en,fr}/ankou.ftl` — traductions Fluent, embarquées à la compilation.
 - `deploy/` — Caddyfile, unités systemd, exemples `api.toml` / `node.toml` (serveurs).
-- `packaging/linux/` — unité systemd d'`ankoud` (poste client).
+- `packaging/linux/` — unité systemd d'`ankoud` (poste client) ; `packaging/macos/` — démon launchd `fr.lpdnsoft.ankoud.plist`.
 - `xtask` — contrôles.
 
 ## Commande unique
@@ -52,6 +52,8 @@ Prérequis : Rust stable ≥ 1.95 (egui 0.36), `cargo install cargo-deny --locke
 
 Bout en bout Windows : job CI `e2e-windows` (pare-feu WFP réel, service par le pipe, carte `ankou0`) ; en local, en administrateur : `cargo test -p ankou-platform --test e2e_windows -- --ignored --test-threads=1`.
 
+Bout en bout macOS : job CI `e2e-macos` (`pf` réel, socket sans `sudo`, carte `utun100`) ; en local : `sudo -E env "PATH=$PATH" cargo test -p ankou-platform --test e2e_macos -- --ignored --test-threads=1`. Depuis Linux, clippy macOS des crates sans `aws-lc-sys` (`ankou-platform`, `ankou-ipc`, `ankou-daemon`, `ankoud`) : `--target aarch64-apple-darwin`, avec `CC_aarch64_apple_darwin=clang AR_aarch64_apple_darwin=llvm-ar CFLAGS_aarch64_apple_darwin="-ffreestanding -nostdlibinc -I<dossier>"`, où `<dossier>` contient des en-têtes factices pour `ring` (`TargetConditionals.h`, `string.h`, `assert.h`).
+
 Bout en bout Linux (root, `ip`, `wg`, `nft`, `bash`, module `wireguard` ; aussi lancé par le job CI `e2e-linux`, tests de fuite IPv4/IPv6/DNS compris) :
 
 ```sh
@@ -59,7 +61,7 @@ cargo build -p ankou-cli -p ankoud
 sudo -E env "PATH=$PATH" cargo test -p ankoud --test e2e_linux -- --ignored --test-threads=1
 ```
 
-Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md` ; déploiement des 2 VPS (API, nodes, enrôlement) : `docs/runbooks/etape-2-deploiement.md` ; service `ankoud` sur le poste : `docs/runbooks/etape-3a-service.md` ; kill switch, DNS et IPv6 : `docs/runbooks/etape-3b-protection.md` ; serveur le plus rapide : `docs/runbooks/etape-3c-serveur-rapide.md` ; application graphique : `docs/runbooks/etape-4-interface.md` ; Windows : `docs/runbooks/etape-5a-windows.md`.
+Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md` ; déploiement des 2 VPS (API, nodes, enrôlement) : `docs/runbooks/etape-2-deploiement.md` ; service `ankoud` sur le poste : `docs/runbooks/etape-3a-service.md` ; kill switch, DNS et IPv6 : `docs/runbooks/etape-3b-protection.md` ; serveur le plus rapide : `docs/runbooks/etape-3c-serveur-rapide.md` ; application graphique : `docs/runbooks/etape-4-interface.md` ; Windows : `docs/runbooks/etape-5a-windows.md` ; macOS : `docs/runbooks/etape-5b-macos.md`.
 
 ## Base de données (serveur)
 

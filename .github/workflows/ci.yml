@@ -191,3 +191,56 @@ jobs:
           if (Get-NetAdapter -Name ankou0 -ErrorAction SilentlyContinue) { throw "carte ankou0 restée" }
           Invoke-WebRequest https://www.github.com -UseBasicParsing | Out-Null
           Stop-Process -Id $daemon.Id
+
+  # macOS réel (sudo sans mot de passe) : pare-feu pf, service par le socket, carte utun100.
+  e2e-macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ankou
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/lpdnsoft-libs
+          path: lpdnsoft-libs
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ankou
+      - name: Compilation
+        working-directory: ankou
+        run: |
+          cargo build -p ankoud -p ankou-cli
+          cargo test -p ankou-platform --test e2e_macos --no-run
+      - name: Pare-feu pf réel
+        working-directory: ankou
+        run: sudo -E env "PATH=$PATH" cargo test -p ankou-platform --test e2e_macos -- --ignored --test-threads=1
+      - name: Service, socket et carte utun100
+        working-directory: ankou
+        run: |
+          set -euo pipefail
+          export ANKOU_SOCKET=/tmp/ankou-ci/ankoud.sock
+          sudo target/debug/ankoud --socket "$ANKOU_SOCKET" --state-dir /tmp/ankou-ci-state &
+          sleep 3
+          # Le client tourne sans sudo : le groupe staff du dossier du socket suffit.
+          target/debug/ankou-cli status --lang en | grep -q Disconnected
+          # Sans kill switch : la machine de CI garde son réseau pendant le test.
+          target/debug/ankou-cli killswitch off --lang en
+          cat > ci.toml <<'TOML'
+          [interface]
+          private_key = "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk="
+          address = ["10.8.0.2/32"]
+          [peer]
+          public_key = "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
+          endpoint = "192.0.2.1:51820"
+          allowed_ips = ["10.8.0.0/16"]
+          TOML
+          target/debug/ankou-cli connect --config ci.toml --wait 0 --lang en
+          for i in $(seq 1 15); do ifconfig utun100 >/dev/null 2>&1 && break; sleep 1; done
+          ifconfig utun100
+          target/debug/ankou-cli disconnect --lang en
+          sleep 2
+          if ifconfig utun100 >/dev/null 2>&1; then echo "carte utun100 restée"; exit 1; fi
+          curl -sSf https://github.com -o /dev/null
+          sudo pkill -TERM ankoud

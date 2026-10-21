@@ -35,13 +35,13 @@ pub fn describe_route(interface: &str, gateway: Option<IpAddr>) -> String {
     }
 }
 
-/// Première carte physique qui a une passerelle (ordre du système). Les cartes d'aNkou
-/// (`ankou0`, `ankoup<n>`) en sont exclues : sous Windows, la route par défaut passe par
+/// Première carte physique qui a une passerelle (ordre du système). Les cartes de tunnel
+/// (`ankou*` d'aNkou, `utun*` de macOS) en sont exclues : la route par défaut passe par
 /// le tunnel une fois connecté, ce qui ferait croire à un changement de réseau.
 pub fn physical_route(interfaces: &[(String, Option<IpAddr>)]) -> Option<String> {
     interfaces
         .iter()
-        .find(|(name, gw)| gw.is_some() && !name.starts_with("ankou"))
+        .find(|(name, gw)| gw.is_some() && !name.starts_with("ankou") && !name.starts_with("utun"))
         .map(|(name, gw)| describe_route(name, *gw))
 }
 
@@ -89,11 +89,12 @@ mod tests {
         let gw = |s: &str| s.parse().ok();
         let list = [
             ("ankou0".to_string(), gw("10.8.0.1")),
+            ("utun100".to_string(), gw("10.8.0.1")),
             ("Wi-Fi".to_string(), gw("192.168.1.1")),
             ("Bluetooth".to_string(), None),
         ];
         assert_eq!(physical_route(&list), Some("Wi-Fi via 192.168.1.1".into()));
-        assert_eq!(physical_route(&list[..1]), None);
+        assert_eq!(physical_route(&list[..2]), None);
     }
 
     #[test]

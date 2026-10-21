@@ -24,17 +24,6 @@ pub fn resolvectl_commands(interface: &str, servers: &[IpAddr]) -> Vec<Vec<Strin
     ]
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
-struct NoDns;
-
-#[cfg(not(any(target_os = "linux", windows)))]
-impl Dns for NoDns {
-    fn set(&mut self, _interface: &str, _servers: &[IpAddr]) -> Result<(), PlatformError> {
-        Ok(())
-    }
-    fn revert(&mut self, _interface: &str) {}
-}
-
 #[cfg(target_os = "linux")]
 struct Resolvectl;
 
@@ -65,7 +54,7 @@ impl Dns for Resolvectl {
     }
 }
 
-/// DNS du système courant (sans effet sous macOS jusqu'à l'étape 5b).
+/// DNS du système courant.
 pub fn default_dns() -> Box<dyn Dns> {
     #[cfg(target_os = "linux")]
     {
@@ -75,8 +64,8 @@ pub fn default_dns() -> Box<dyn Dns> {
     {
         Box::new(crate::windows::WindowsDns)
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
     {
-        Box::new(NoDns)
+        Box::new(crate::macos::MacDns)
     }
 }
