@@ -13,19 +13,19 @@ LPDNSoft/
 └── ankou/          dépend de ../lpdnsoft-libs/crates/<nom>
 ```
 
-## Structure (étapes 1 à 4)
+## Structure (étapes 1 à 5a)
 
 - `crates/proto` — `ankou-proto` : constantes, `TunnelConfig` (fichier TOML du client), clés WireGuard (`PrivateKey` jamais affichée), `ErrorCode` stables.
 - `crates/core` — `ankou-core` : machine à états de connexion (spec §6.4), **aucune E/S** ; backoff 1 s → 30 s ; invariant kill switch testé par `proptest` ; choix du serveur (`median`, `fastest`, spec §6.5).
-- `crates/platform` — `ankou-platform` : trait `Tunnel` (+ `Send`), implémentation Linux noyau (configuration par `defguard_wireguard_rs`, routage par `ip` comme `wg-quick`, ADR 0002), trait `SystemWatch` (route par défaut, horloge murale), trait `Firewall` (table nftables `inet ankou`, `nft_ruleset`), trait `Dns` (`resolvectl` sur `ankou0`), trait `Prober` (handshake mesuré sur interfaces temporaires `ankoup<n>`) ; `FakeTunnel`, `FakeWatch`, `FakeFirewall`, `FakeDns`, `FakeProber` pilotables (feature `fake`).
-- `crates/ipc` — `ankou-ipc` : socket local (`interprocess`), trames `u32` + JSON (1 Mio max), poignée de main ; messages dans `ankou_proto::ipc` (protocole 2 : `GetStats`).
+- `crates/platform` — `ankou-platform` (Windows : `windows.rs` wireguard-nt + NRPT, `windows_firewall.rs` WFP persistant, `wfp_rules` pur, route par `netdev` hors cartes `ankou*` ; ADR 0009) : trait `Tunnel` (+ `Send`), implémentation Linux noyau (configuration par `defguard_wireguard_rs`, routage par `ip` comme `wg-quick`, ADR 0002), trait `SystemWatch` (route par défaut, horloge murale), trait `Firewall` (table nftables `inet ankou`, `nft_ruleset`), trait `Dns` (`resolvectl` sur `ankou0`), trait `Prober` (handshake mesuré sur interfaces temporaires `ankoup<n>`) ; `FakeTunnel`, `FakeWatch`, `FakeFirewall`, `FakeDns`, `FakeProber` pilotables (feature `fake`).
+- `crates/ipc` — `ankou-ipc` : socket local (`interprocess`), trames `u32` + JSON (1 Mio max), poignée de main ; messages dans `ankou_proto::ipc` (protocole 2 : `GetStats`) ; Windows : named pipe `\\.\pipe\ankou`, ACL `PIPE_SDDL` ; feature `testing` (`test_socket`) pour les tests.
 - `crates/daemon` — `ankou-daemon` : `run(config, System { tunnel, firewall, dns, watch, resolve, prober }, stop)` ; acteur qui exécute la machine à états, surveillance toutes les 5 s (handshake, réseau, veille), profil, réglages (`auto_connect`, `kill_switch` activé par défaut) et cache d'endpoint dans le dossier d'état, sessions IPC (ADR 0005). Pare-feu selon l'état : posé avant chaque montée du tunnel, retiré en `Disconnected`/`Error` ; IPv6 toujours bloqué, IPv4 hors tunnel avec le kill switch ; DNS du tunnel à `Connected` ; reprise après crash si la table `ankou` est restée (ADR 0006). `ConnectFastest` : candidats mesurés en parallèle (16 au plus), plus petite médiane retenue (ADR 0007).
 - `crates/ui-egui` — `ankou-ui-egui` : interface egui 0.36 (rendu `glow`), ADR 0008 :
   - `bridge.rs` : thread tokio vers l'IPC et l'API ;
   - `model.rs` : modèle pur (`Update`, `Request`) ;
   - `screen.rs` et `views/` : onglets Accueil, Serveurs, Compte, Réglages, À propos ;
   - `prefs.rs` : `ui.toml`, langue et favoris ;
-  - `tray.rs` : icône `ksni`, Linux ;
+  - `tray.rs` : icône `ksni` (Linux), `tray-icon` (Windows, macOS) ;
   - `run(lang)`.
 - `crates/server-domain` — `ankou-server-domain` : règles pures du serveur (e-mail, mot de passe ≥ 12 caractères, invitations, limite d'appareils, attribution d'adresses dans `10.8.0.0/16`, `hash_secret`). Aucune E/S.
 - `crates/server-store` — `ankou-server-store` : **seule** couche qui écrit du SQL (PostgreSQL, sqlx, migrations dans `migrations/`, `MIGRATOR`). Un déclencheur publie chaque ajout/révocation d'appareil sur le canal `ankou_peers` (`PeerChange`).
@@ -33,7 +33,7 @@ LPDNSoft/
 - `crates/api-client` — `ankou-api-client` : `ApiClient` (https exigé hors machine locale, rafraîchissement du jeton sur 401), `Session` (`ANKOU_SESSION_FILE` ou `<config>/ankou/session.toml`, 0600) ; `new_device`, cache `servers.json`, `to_entries` (`src/device.rs`, partagés CLI/UI).
 - `apps/ankou-api` — API REST `/v1` (axum) : bibliothèque `router()` + `main` (`serve`, `genkey`). Auth : ADR 0003. OpenAPI : `GET /v1/openapi.json`. Nodes : `GET /v1/nodes/ws` (jeton du node en `Bearer`), messages `ankou_proto::node` (`Hello` → `Welcome`, `FullSync`, `PeerAdded`, `PeerRemoved`, `Stats`), diffusion par `PeerHub` (ADR 0004).
 - `apps/ankou` — application graphique (`--lang en|fr`, socket surchargeable par `ANKOU_SOCKET`) ; lanceur `packaging/linux/ankou.desktop`.
-- `apps/ankoud` — service système du poste (root) : `--socket` (défaut `/run/ankou/ankoud.sock`), `--state-dir` (défaut `/var/lib/ankou`) ; unité `packaging/linux/ankoud.service`.
+- `apps/ankoud` — service système du poste (root, ou service Windows `--service`) : `--socket` (défaut `/run/ankou/ankoud.sock`, `\\.\pipe\ankou` sous Windows), `--state-dir` (défaut `/var/lib/ankou`, `C:\ProgramData\aNkou`) ; unité `packaging/linux/ankoud.service`. Sous Windows, `wireguard.dll` attendue dans `<dossier de l'exe>\resources-windows\binaries\wireguard-amd64.dll` (jamais commitée).
 - `apps/ankou-node` — service des VPS : `--config /etc/ankou/node.toml`, ne gère que les pairs de `wg0` (Linux).
 - `apps/ankou-admin` — invitations, serveurs (jeton de node), utilisateurs, appareils ; agit directement sur la base.
 - `apps/ankou-cli` — `version`, `init --out <fichier>`, `register`, `login`, `servers`, `enroll --name --out [--server]` (`src/account.rs`) ; `connect [--config <fichier>] [--wait s] [--fastest [--country CC] [--tag T]]`, `disconnect`, `status`, `autoconnect on|off`, `killswitch on|off` par l'IPC d'`ankoud` (`src/daemon.rs`, socket surchargeable par `ANKOU_SOCKET`) ; option globale `--lang en|fr`.
@@ -50,6 +50,8 @@ cargo xtask ci   # i18n complet, fmt --check, clippy -D warnings, tests, cargo d
 
 Prérequis : Rust stable ≥ 1.95 (egui 0.36), `cargo install cargo-deny --locked`.
 
+Bout en bout Windows : job CI `e2e-windows` (pare-feu WFP réel, service par le pipe, carte `ankou0`) ; en local, en administrateur : `cargo test -p ankou-platform --test e2e_windows -- --ignored --test-threads=1`.
+
 Bout en bout Linux (root, `ip`, `wg`, `nft`, `bash`, module `wireguard` ; aussi lancé par le job CI `e2e-linux`, tests de fuite IPv4/IPv6/DNS compris) :
 
 ```sh
@@ -57,7 +59,7 @@ cargo build -p ankou-cli -p ankoud
 sudo -E env "PATH=$PATH" cargo test -p ankoud --test e2e_linux -- --ignored --test-threads=1
 ```
 
-Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md` ; déploiement des 2 VPS (API, nodes, enrôlement) : `docs/runbooks/etape-2-deploiement.md` ; service `ankoud` sur le poste : `docs/runbooks/etape-3a-service.md` ; kill switch, DNS et IPv6 : `docs/runbooks/etape-3b-protection.md` ; serveur le plus rapide : `docs/runbooks/etape-3c-serveur-rapide.md` ; application graphique : `docs/runbooks/etape-4-interface.md`.
+Essai réel vers un VPS : `docs/runbooks/etape-1-tunnel-manuel.md` ; déploiement des 2 VPS (API, nodes, enrôlement) : `docs/runbooks/etape-2-deploiement.md` ; service `ankoud` sur le poste : `docs/runbooks/etape-3a-service.md` ; kill switch, DNS et IPv6 : `docs/runbooks/etape-3b-protection.md` ; serveur le plus rapide : `docs/runbooks/etape-3c-serveur-rapide.md` ; application graphique : `docs/runbooks/etape-4-interface.md` ; Windows : `docs/runbooks/etape-5a-windows.md`.
 
 ## Base de données (serveur)
 

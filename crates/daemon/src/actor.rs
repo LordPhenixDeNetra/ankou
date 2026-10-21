@@ -214,6 +214,11 @@ impl Actor {
             }
             Command::Disconnect(reply) => {
                 self.handle(Event::Disconnect);
+                // Protection posée sans que le service le sache (pare-feu Windows démarré
+                // après lui, ADR 0009) : la déconnexion la retire quand même.
+                if self.status == Status::Disconnected && self.firewall.is_active() {
+                    self.clear_firewall();
+                }
                 let _ = reply.send(DaemonToClient::Done);
             }
             Command::GetSettings(reply) => {
@@ -406,6 +411,7 @@ impl Actor {
                 };
                 match self.tunnel.up(&cfg) {
                     Ok(()) => {
+                        self.reapply_firewall();
                         self.handshake_deadline = Some(Instant::now() + HANDSHAKE_TIMEOUT);
                         self.poll_at = poll_later();
                         None
@@ -499,6 +505,16 @@ impl Actor {
             self.firewall_policy = Some(policy);
         }
         Ok(())
+    }
+
+    /// Même politique, posée de nouveau une fois le tunnel monté : sous Windows, la règle
+    /// qui autorise le tunnel vise la carte, qui n'existait pas encore (ADR 0009).
+    fn reapply_firewall(&mut self) {
+        if let Some(policy) = &self.firewall_policy
+            && let Err(e) = self.firewall.apply(policy)
+        {
+            tracing::warn!(error = %e, "pare-feu non réappliqué après la montée du tunnel");
+        }
     }
 
     /// Réglage du kill switch changé : la table en place prend la nouvelle politique.

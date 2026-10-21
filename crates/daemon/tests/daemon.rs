@@ -1,5 +1,4 @@
-//! Socket local dans un dossier temporaire : Unix seulement (named pipe Windows à l'étape 5).
-#![cfg(unix)]
+//! Socket local dans un dossier temporaire (Unix) ou named pipe unique (Windows).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ankou_daemon::{DaemonConfig, System, run};
@@ -10,7 +9,6 @@ use ankou_proto::ipc::{ClientToDaemon, DaemonSettings, DaemonToClient, ServerEnt
 use ankou_proto::{ErrorCode, TunnelConfig};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::watch;
 
 /// Au-delà du délai de handshake du service (5 s).
@@ -51,7 +49,7 @@ impl Daemon {
     }
 
     async fn start_with(state_dir: &Path, tunnel: FakeTunnel, firewall: FakeFirewall) -> Daemon {
-        let socket = state_dir.join("ankoud.sock");
+        let socket = ankou_ipc::testing::test_socket(state_dir);
         let watch = FakeWatch::default();
         let dns = FakeDns::default();
         let prober = FakeProber::default();
@@ -82,7 +80,7 @@ impl Daemon {
             run(cfg, system, stop_rx).await.unwrap();
         });
         for _ in 0..100 {
-            if socket.exists() {
+            if connect(&socket).await.is_ok() {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -443,6 +441,7 @@ async fn bad_client_does_not_disturb_others() {
     let dir = tempfile::tempdir().unwrap();
     let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
     let mut w = d.watcher().await;
+    use tokio::io::AsyncWriteExt;
     let mut garbage = tokio::net::UnixStream::connect(&d.socket).await.unwrap();
     garbage.write_u32(7).await.unwrap();
     garbage.write_all(b"garbage").await.unwrap();
@@ -516,7 +515,9 @@ async fn stop_brings_tunnel_down() {
     d.stop().await;
     assert_eq!(tunnel.calls().last().map(String::as_str), Some("down"));
     assert!(!tunnel.is_up());
+    #[cfg(unix)]
     assert!(!socket.exists());
+    let _ = socket;
 }
 
 /// Sans handshake, le tunnel est retiré pendant l'attente : la machine garde Internet.
@@ -1048,5 +1049,36 @@ async fn unreadable_stats_are_an_error() {
             ..
         }
     ));
+    d.stop().await;
+}
+
+/// Sous Windows, la règle « tunnel autorisé » vise la carte, qui n'existe qu'après la montée :
+/// la politique est réappliquée juste après `up`.
+#[tokio::test]
+async fn firewall_reapplied_after_tunnel_up() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    assert_eq!(d.firewall.history(), [policy(true), policy(true)]);
+    assert_eq!(d.firewall.active(), Some(policy(true)));
+    d.stop().await;
+}
+
+/// Protection apparue sans que le service le sache (pare-feu Windows démarré après lui) :
+/// « Se déconnecter » la retire quand même, sinon la machine resterait coupée.
+#[tokio::test]
+async fn disconnect_clears_unknown_protection() {
+    let dir = tempfile::tempdir().unwrap();
+    let firewall = FakeFirewall::default();
+    let d = Daemon::start_with(dir.path(), FakeTunnel::default(), firewall.clone()).await;
+    let _w = d.watcher().await;
+    firewall.set_leftover(policy(true));
+    let mut c = d.client().await;
+    assert_eq!(
+        ask(&mut c, ClientToDaemon::Disconnect).await,
+        DaemonToClient::Done
+    );
+    assert_eq!(firewall.active(), None);
     d.stop().await;
 }

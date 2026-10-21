@@ -51,7 +51,9 @@ pub fn link_text(loc: &Localizer, link: &Link) -> Option<String> {
     Some(match link {
         Link::Ready => return None,
         Link::Starting => t!(loc, "ui-daemon-starting"),
+        Link::Missing if cfg!(windows) => t!(loc, "ui-daemon-missing-windows"),
         Link::Missing => t!(loc, "ui-daemon-missing"),
+        Link::Denied if cfg!(windows) => t!(loc, "ui-daemon-denied-windows"),
         Link::Denied => t!(loc, "ui-daemon-denied"),
         Link::Incompatible(v) => t!(loc, "ui-daemon-incompatible", version = *v),
         Link::Broken(detail) => t!(loc, "ui-daemon-error", detail = detail.as_str()),

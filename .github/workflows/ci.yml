@@ -111,3 +111,83 @@ jobs:
       - name: Tests avec PostgreSQL
         working-directory: ankou
         run: cargo test -p ankou-server-store -p ankou-api -p ankou-admin -p ankou-node-core -p ankou-api-client -- --ignored
+
+  # Windows réel (administrateur) : pilote wireguard-nt, pare-feu WFP, service par le pipe.
+  e2e-windows:
+    runs-on: windows-2025
+    # Un blocage du pare-feu mal retiré ne doit pas immobiliser la machine des heures.
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Chemins longs
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          path: ankou
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/lpdnsoft-libs
+          path: lpdnsoft-libs
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ankou
+      - name: wireguard.dll (WireGuard LLC, signature vérifiée)
+        working-directory: ankou
+        run: |
+          Invoke-WebRequest https://download.wireguard.com/wireguard-nt/wireguard-nt-0.10.1.zip -OutFile wgnt.zip
+          Expand-Archive wgnt.zip -DestinationPath wgnt
+          $dll = "wgnt\wireguard-nt\bin\amd64\wireguard.dll"
+          $sig = Get-AuthenticodeSignature $dll
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'WireGuard LLC') {
+            throw "signature de wireguard.dll invalide : $($sig.Status) $($sig.SignerCertificate.Subject)"
+          }
+          foreach ($dir in "target\debug", "crates\platform") {
+            New-Item -ItemType Directory -Force "$dir\resources-windows\binaries" | Out-Null
+            Copy-Item $dll "$dir\resources-windows\binaries\wireguard-amd64.dll"
+          }
+      - name: Compilation
+        working-directory: ankou
+        run: |
+          cargo build -p ankoud -p ankou-cli
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo test -p ankou-platform --test e2e_windows --no-run
+      - name: Pare-feu WFP réel
+        working-directory: ankou
+        run: cargo test -p ankou-platform --test e2e_windows -- --ignored --test-threads=1
+      - name: Service, pipe et carte ankou0
+        working-directory: ankou
+        run: |
+          $env:ANKOU_SOCKET = '\\.\pipe\ankou-ci'
+          $state = Join-Path $env:RUNNER_TEMP 'ankou'
+          $daemon = Start-Process target\debug\ankoud.exe -ArgumentList '--socket', $env:ANKOU_SOCKET, '--state-dir', $state -PassThru -NoNewWindow
+          Start-Sleep -Seconds 3
+          # Plusieurs lignes : réunies avant la comparaison (sinon -notmatch filtre un tableau).
+          $out = (target\debug\ankou-cli.exe status --lang en) -join "`n"
+          if ($out -notmatch 'Disconnected') { throw "status : $out" }
+          # Sans kill switch : la machine de CI garde son réseau pendant le test.
+          target\debug\ankou-cli.exe killswitch off --lang en
+          @"
+          [interface]
+          private_key = "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk="
+          address = ["10.8.0.2/32"]
+          [peer]
+          public_key = "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg="
+          endpoint = "192.0.2.1:51820"
+          allowed_ips = ["10.8.0.0/16"]
+          "@ | Set-Content ci.toml
+          target\debug\ankou-cli.exe connect --config ci.toml --wait 0 --lang en
+          # La première carte installe le pilote : jusqu'à 30 s.
+          $found = $false
+          foreach ($i in 1..30) {
+            if (Get-NetAdapter -Name ankou0 -ErrorAction SilentlyContinue) { $found = $true; break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $found) { throw "carte ankou0 absente" }
+          target\debug\ankou-cli.exe disconnect --lang en
+          Start-Sleep -Seconds 2
+          if (Get-NetAdapter -Name ankou0 -ErrorAction SilentlyContinue) { throw "carte ankou0 restée" }
+          Invoke-WebRequest https://www.github.com -UseBasicParsing | Out-Null
+          Stop-Process -Id $daemon.Id

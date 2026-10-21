@@ -23,7 +23,11 @@ tracing = "0.1"
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni.workspace = true
 
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+tray-icon.workspace = true
+
 [dev-dependencies]
+ankou-ipc = { workspace = true, features = ["testing"] }
 ankou-daemon.workspace = true
 ankou-platform = { workspace = true, features = ["fake"] }
 egui_kittest.workspace = true

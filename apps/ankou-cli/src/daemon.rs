@@ -34,7 +34,11 @@ fn socket() -> PathBuf {
 pub fn daemon_error_message(loc: &Localizer, e: &IpcError) -> String {
     match e {
         IpcError::Io(io) if io.kind() == ErrorKind::PermissionDenied => {
-            t!(loc, "cli-daemon-denied")
+            if cfg!(windows) {
+                t!(loc, "cli-daemon-denied-windows")
+            } else {
+                t!(loc, "cli-daemon-denied")
+            }
         }
         IpcError::Io(io)
             if matches!(
@@ -42,9 +46,14 @@ pub fn daemon_error_message(loc: &Localizer, e: &IpcError) -> String {
                 ErrorKind::NotFound | ErrorKind::ConnectionRefused
             ) =>
         {
-            t!(loc, "cli-daemon-missing")
+            if cfg!(windows) {
+                t!(loc, "cli-daemon-missing-windows")
+            } else {
+                t!(loc, "cli-daemon-missing")
+            }
         }
         IpcError::Incompatible(v) => t!(loc, "cli-daemon-incompatible", version = *v),
+        IpcError::Impostor(pid) => t!(loc, "cli-daemon-impostor", pid = *pid),
         other => {
             let detail = other.to_string();
             t!(loc, "cli-daemon-error", detail = detail.as_str())
@@ -318,18 +327,15 @@ mod tests {
         let mut loc = crate::localizer().unwrap();
         loc.negotiate(&["en".parse().unwrap()]);
         let io = |k| IpcError::Io(std::io::Error::from(k));
-        assert!(
-            daemon_error_message(&loc, &io(ErrorKind::NotFound))
-                .contains("systemctl enable --now ankoud")
-        );
-        assert!(
-            daemon_error_message(&loc, &io(ErrorKind::ConnectionRefused))
-                .contains("systemctl enable --now ankoud")
-        );
-        assert!(
-            daemon_error_message(&loc, &io(ErrorKind::PermissionDenied))
-                .contains("usermod -aG ankou")
-        );
+        // Chaque système dit comment démarrer son service et obtenir l'accès.
+        let (start, access) = if cfg!(windows) {
+            ("sc.exe start ankoud", "your own Windows session")
+        } else {
+            ("systemctl enable --now ankoud", "usermod -aG ankou")
+        };
+        assert!(daemon_error_message(&loc, &io(ErrorKind::NotFound)).contains(start));
+        assert!(daemon_error_message(&loc, &io(ErrorKind::ConnectionRefused)).contains(start));
+        assert!(daemon_error_message(&loc, &io(ErrorKind::PermissionDenied)).contains(access));
         assert!(daemon_error_message(&loc, &IpcError::Incompatible(2)).contains('2'));
     }
 

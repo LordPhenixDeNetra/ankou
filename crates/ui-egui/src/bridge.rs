@@ -386,7 +386,6 @@ async fn handle(
 }
 
 #[cfg(test)]
-#[cfg(unix)]
 mod tests {
     use super::*;
 
@@ -411,7 +410,7 @@ mod tests {
             wake: Arc::new(|| {}),
         };
         let mut pending = Some(config());
-        let missing = dir.path().join("absent.sock");
+        let missing = ankou_ipc::testing::test_socket(dir.path());
         assert!(hand_over(&missing, &mut pending, &out).await.is_err());
         assert_eq!(pending, Some(config()));
     }

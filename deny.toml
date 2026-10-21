@@ -1,5 +1,18 @@
 [graph]
 all-features = true
+# Cibles réelles seulement (ADR 0009).
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+# GTK n'est compilé sur aucune de ces cibles : `tray-icon` (Windows, macOS seulement) ne le
+# tire que sous Linux, où aNkou utilise `ksni`. cargo-deny réunit les cibles arête par arête
+# et le compterait quand même.
+exclude = ["gtk", "libappindicator"]
 
 [advisories]
 version = 2

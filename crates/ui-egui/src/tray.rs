@@ -53,27 +53,11 @@ pub struct TrayView {
 #[cfg(target_os = "linux")]
 pub use sni::{TrayHandle, spawn_tray};
 
-/// Pas encore d'icône hors Linux (étape 5).
-#[cfg(not(target_os = "linux"))]
-pub struct TrayHandle;
+#[cfg(any(windows, target_os = "macos"))]
+pub use native::{TrayHandle, spawn_tray};
 
-#[cfg(not(target_os = "linux"))]
-impl TrayHandle {
-    pub fn set(&self, _view: TrayView) {}
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn spawn_tray(
-    _runtime: &tokio::runtime::Handle,
-    _view: TrayView,
-    _actions: std::sync::mpsc::Sender<TrayAction>,
-    _wake: crate::bridge::Wake,
-) -> Option<TrayHandle> {
-    None
-}
-
-#[cfg(target_os = "linux")]
-fn icon(tone: Tone) -> ksni::Icon {
+/// Disque de la couleur de l'état, 32×32, RGBA (octets dans cet ordre).
+pub fn disc_rgba(tone: Tone) -> Vec<u8> {
     let color = lpdnsoft_ui::status_color(tone);
     let mut data = Vec::with_capacity(32 * 32 * 4);
     for y in 0u8..32 {
@@ -84,13 +68,128 @@ fn icon(tone: Tone) -> ksni::Icon {
             } else {
                 0
             };
-            data.extend_from_slice(&[alpha, color.r(), color.g(), color.b()]);
+            data.extend_from_slice(&[color.r(), color.g(), color.b(), alpha]);
         }
     }
+    data
+}
+
+/// StatusNotifierItem attend de l'ARGB.
+#[cfg(target_os = "linux")]
+fn icon(tone: Tone) -> ksni::Icon {
+    let data = disc_rgba(tone)
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|[r, g, b, a]| [*a, *r, *g, *b])
+        .collect();
     ksni::Icon {
         width: 32,
         height: 32,
         data,
+    }
+}
+
+/// Windows et macOS : `tray-icon`, créée sur le fil de la fenêtre (créateur eframe).
+#[cfg(any(windows, target_os = "macos"))]
+mod native {
+    use super::{TrayAction, TrayView, disc_rgba};
+    use crate::bridge::Wake;
+    use std::sync::mpsc::Sender;
+    use tray_icon::menu::{Menu, MenuEvent, MenuItem};
+    use tray_icon::{
+        Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
+    };
+
+    const ACTIONS: [(TrayAction, &str); 5] = [
+        (TrayAction::Connect, "connect"),
+        (TrayAction::Disconnect, "disconnect"),
+        (TrayAction::Fastest, "fastest"),
+        (TrayAction::Open, "open"),
+        (TrayAction::Quit, "quit"),
+    ];
+
+    fn id_of(action: TrayAction) -> &'static str {
+        ACTIONS
+            .iter()
+            .find(|(a, _)| *a == action)
+            .map_or("open", |(_, id)| id)
+    }
+
+    fn action_of(id: &str) -> Option<TrayAction> {
+        ACTIONS.iter().find(|(_, i)| *i == id).map(|(a, _)| *a)
+    }
+
+    fn picture(view: &TrayView) -> Option<Icon> {
+        Icon::from_rgba(disc_rgba(view.tone), 32, 32).ok()
+    }
+
+    pub struct TrayHandle {
+        tray: TrayIcon,
+        items: Vec<MenuItem>,
+    }
+
+    impl TrayHandle {
+        pub fn set(&self, view: TrayView) {
+            let _ = self.tray.set_icon(picture(&view));
+            let _ = self.tray.set_tooltip(Some(&view.tooltip));
+            for ((item, label), entry) in view.items.iter().zip(&self.items) {
+                entry.set_text(label);
+                entry.set_enabled(item.enabled);
+            }
+        }
+    }
+
+    pub fn spawn_tray(
+        _runtime: &tokio::runtime::Handle,
+        view: TrayView,
+        actions: Sender<TrayAction>,
+        wake: Wake,
+    ) -> Option<TrayHandle> {
+        let menu = Menu::new();
+        let items: Vec<MenuItem> = view
+            .items
+            .iter()
+            .map(|(item, label)| MenuItem::with_id(id_of(item.action), label, item.enabled, None))
+            .collect();
+        for entry in &items {
+            menu.append(entry).ok()?;
+        }
+        let tray = match TrayIconBuilder::new()
+            .with_menu(Box::new(menu))
+            .with_tooltip(&view.tooltip)
+            .with_icon(picture(&view)?)
+            // Clic gauche : la fenêtre ; le menu reste au clic droit.
+            .with_menu_on_left_click(false)
+            .build()
+        {
+            Ok(tray) => tray,
+            Err(e) => {
+                tracing::info!(error = %e, "pas d'icône de notification");
+                return None;
+            }
+        };
+        let (menu_tx, menu_wake) = (actions.clone(), wake.clone());
+        MenuEvent::set_event_handler(Some(move |e: MenuEvent| {
+            if let Some(action) = action_of(e.id.as_ref())
+                && menu_tx.send(action).is_ok()
+            {
+                menu_wake();
+            }
+        }));
+        // Clic gauche sur l'icône : ouvrir la fenêtre (le menu reste au clic droit).
+        TrayIconEvent::set_event_handler(Some(move |e: TrayIconEvent| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = e
+                && actions.send(TrayAction::Open).is_ok()
+            {
+                wake();
+            }
+        }));
+        Some(TrayHandle { tray, items })
     }
 }
 
@@ -257,13 +356,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn disc_rgba_is_32x32() {
+        let data = disc_rgba(lpdnsoft_ui::Tone::On);
+        assert_eq!(data.len(), 32 * 32 * 4);
+        // Centre opaque, coin transparent (alpha en 4e octet).
+        let at = |x: usize, y: usize| &data[(y * 32 + x) * 4..][..4];
+        assert_eq!(at(16, 16)[3], 0xFF);
+        assert_eq!(at(0, 0)[3], 0);
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn tray_icon_pixmap_is_32x32_argb() {
         let icon = icon(lpdnsoft_ui::Tone::On);
         assert_eq!((icon.width, icon.height), (32, 32));
         assert_eq!(icon.data.len(), 32 * 32 * 4);
-        // Centre opaque, coin transparent.
+        // Centre opaque, coin transparent (alpha en 1er octet).
         let at = |x: usize, y: usize| &icon.data[(y * 32 + x) * 4..][..4];
         assert_eq!(at(16, 16)[0], 0xFF);
         assert_eq!(at(0, 0)[0], 0);
