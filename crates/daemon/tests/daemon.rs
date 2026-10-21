@@ -1051,3 +1051,16 @@ async fn unreadable_stats_are_an_error() {
     ));
     d.stop().await;
 }
+
+/// Sous Windows, la règle « tunnel autorisé » vise la carte, qui n'existe qu'après la montée :
+/// la politique est réappliquée juste après `up`.
+#[tokio::test]
+async fn firewall_reapplied_after_tunnel_up() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
+    let mut w = d.watcher().await;
+    connect_now(&d, &mut w).await;
+    assert_eq!(d.firewall.history(), [policy(true), policy(true)]);
+    assert_eq!(d.firewall.active(), Some(policy(true)));
+    d.stop().await;
+}
