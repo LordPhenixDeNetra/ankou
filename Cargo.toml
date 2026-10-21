@@ -74,6 +74,8 @@ serde_json = "1"
 widestring = "1"
 # Pare-feu Windows (WFP), par Mullvad (ADR 0009).
 wfp = "0.2"
+# Route par défaut hors Linux (Windows, macOS).
+netdev = "0.46"
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "uuid", "time", "ipnet"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 sha2 = "0.10"

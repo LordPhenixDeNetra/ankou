@@ -20,7 +20,7 @@ use std::time::SystemTime;
 pub use dns::{Dns, default_dns, resolvectl_commands};
 pub use firewall::{Firewall, FirewallPolicy, WfpRule, default_firewall, nft_ruleset, wfp_rules};
 pub use probe::{Prober, default_prober};
-pub use watch::{SystemWatch, default_watch, parse_default_route};
+pub use watch::{SystemWatch, default_watch, describe_route, parse_default_route, physical_route};
 #[cfg(windows)]
 pub use windows::{WIREGUARD_DLL, dll_present};
 
