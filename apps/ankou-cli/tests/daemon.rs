@@ -1,6 +1,5 @@
 //! `ankou-cli` face à un vrai `ankou-daemon` (tunnel factice) servi dans ce processus.
-//! Unix seulement : socket dans un dossier temporaire (named pipe Windows à l'étape 5).
-#![cfg(unix)]
+//! Socket dans un dossier temporaire (Unix) ou named pipe unique (Windows).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ankou_daemon::{DaemonConfig, System, run};
@@ -26,7 +25,7 @@ struct Daemon {
 
 impl Daemon {
     fn start(dir: &Path, tunnel: FakeTunnel) -> Daemon {
-        let socket = dir.join("ankoud.sock");
+        let socket = ankou_ipc::testing::test_socket(dir);
         let config = DaemonConfig::new(socket.clone(), dir.join("state"));
         let (stop, stop_rx) = tokio::sync::watch::channel(false);
         let thread = std::thread::spawn(move || {
@@ -41,8 +40,13 @@ impl Daemon {
             };
             rt.block_on(run(config, system, stop_rx)).unwrap();
         });
+        // Prêt quand il répond (un named pipe n'est pas un fichier visible).
+        let probe = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         for _ in 0..200 {
-            if socket.exists() {
+            if probe.block_on(ankou_ipc::connect(&socket)).is_ok() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(10));

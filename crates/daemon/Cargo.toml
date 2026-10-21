@@ -20,6 +20,7 @@ toml.workspace = true
 tracing = "0.1"
 
 [dev-dependencies]
+ankou-ipc = { workspace = true, features = ["testing"] }
 ankou-platform = { workspace = true, features = ["fake"] }
 tempfile.workspace = true
 

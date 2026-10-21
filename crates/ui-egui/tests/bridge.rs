@@ -1,5 +1,4 @@
 //! Le pont contre un vrai `ankou-daemon` sur plateforme factice. Socket Unix seulement.
-#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ankou_daemon::{DaemonConfig, System, run};
@@ -52,7 +51,7 @@ async fn start_daemon(state_dir: &Path, socket: &Path, tunnel: FakeTunnel) -> Da
     };
     let task = tokio::spawn(async move { run(cfg, system, stop_rx).await.unwrap() });
     for _ in 0..100 {
-        if socket.exists() {
+        if ankou_ipc::connect(socket).await.is_ok() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -108,7 +107,7 @@ async fn ipc_connect(socket: &Path) {
 }
 
 fn socket_in(dir: &Path) -> PathBuf {
-    dir.join("ankoud.sock")
+    ankou_ipc::testing::test_socket(dir)
 }
 
 #[tokio::test]

@@ -86,12 +86,35 @@ impl<S: AsyncRead + Unpin> Framed<S> {
 
 pub type Connection = Framed<Stream>;
 
-/// Socket du service (spec §6.7) ; Windows (named pipe) arrive à l'étape 5.
+/// Socket du service (spec §6.7) : named pipe sous Windows.
 pub fn default_socket() -> PathBuf {
-    if cfg!(target_os = "macos") {
+    if cfg!(windows) {
+        r"\\.\pipe\ankou".into()
+    } else if cfg!(target_os = "macos") {
         "/var/run/ankou/ankoud.sock".into()
     } else {
         "/run/ankou/ankoud.sock".into()
+    }
+}
+
+/// Droits du named pipe (Windows) : SYSTEM et administrateurs, tout ; utilisateurs de la
+/// session (interactifs), lecture et écriture.
+pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
+
+#[cfg(feature = "testing")]
+pub mod testing {
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Socket propre à un test : un fichier de `dir` (Unix), un named pipe unique (Windows).
+    pub fn test_socket(dir: &Path) -> PathBuf {
+        if cfg!(windows) {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let n = NEXT.fetch_add(1, Ordering::Relaxed);
+            PathBuf::from(format!(r"\\.\pipe\ankou-test-{}-{n}", std::process::id()))
+        } else {
+            dir.join("ankoud.sock")
+        }
     }
 }
 
@@ -123,16 +146,26 @@ pub struct IpcListener {
 }
 
 impl IpcListener {
-    /// Un socket existant auquel un service répond → `AlreadyRunning` ; un socket mort
-    /// (crash) est supprimé puis recréé. Droits `0660` : propriétaire et groupe.
+    /// Un service répond déjà → `AlreadyRunning`. Unix : un socket mort (crash) est supprimé
+    /// puis recréé, droits `0660` (propriétaire et groupe). Windows : ACL `PIPE_SDDL`.
     pub async fn bind(path: &Path) -> Result<Self, IpcError> {
+        if Stream::connect(name(path)?).await.is_ok() {
+            return Err(IpcError::AlreadyRunning);
+        }
+        #[cfg(unix)]
         if path.exists() {
-            if Stream::connect(name(path)?).await.is_ok() {
-                return Err(IpcError::AlreadyRunning);
-            }
             std::fs::remove_file(path)?;
         }
-        let listener = ListenerOptions::new().name(name(path)?).create_tokio()?;
+        let options = ListenerOptions::new().name(name(path)?);
+        #[cfg(windows)]
+        let options = {
+            use interprocess::os::windows::local_socket::ListenerOptionsExt;
+            use interprocess::os::windows::security_descriptor::SecurityDescriptor;
+            let sddl = widestring::U16CString::from_str(PIPE_SDDL)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+            options.security_descriptor(SecurityDescriptor::deserialize(&sddl)?)
+        };
+        let listener = options.create_tokio()?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -146,5 +179,17 @@ impl IpcListener {
 
     pub async fn accept(&self) -> Result<Connection, IpcError> {
         Ok(Framed::new(self.listener.accept().await?))
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::PIPE_SDDL;
+    use interprocess::os::windows::security_descriptor::SecurityDescriptor;
+
+    #[test]
+    fn pipe_security_descriptor_parses() {
+        let sddl = widestring::U16CString::from_str(PIPE_SDDL).unwrap();
+        assert!(SecurityDescriptor::deserialize(&sddl).is_ok());
     }
 }

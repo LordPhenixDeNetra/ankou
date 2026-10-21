@@ -24,6 +24,7 @@ tracing = "0.1"
 ksni.workspace = true
 
 [dev-dependencies]
+ankou-ipc = { workspace = true, features = ["testing"] }
 ankou-daemon.workspace = true
 ankou-platform = { workspace = true, features = ["fake"] }
 egui_kittest.workspace = true

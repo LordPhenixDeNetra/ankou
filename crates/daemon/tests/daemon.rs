@@ -1,5 +1,4 @@
-//! Socket local dans un dossier temporaire : Unix seulement (named pipe Windows à l'étape 5).
-#![cfg(unix)]
+//! Socket local dans un dossier temporaire (Unix) ou named pipe unique (Windows).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ankou_daemon::{DaemonConfig, System, run};
@@ -10,7 +9,6 @@ use ankou_proto::ipc::{ClientToDaemon, DaemonSettings, DaemonToClient, ServerEnt
 use ankou_proto::{ErrorCode, TunnelConfig};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::watch;
 
 /// Au-delà du délai de handshake du service (5 s).
@@ -51,7 +49,7 @@ impl Daemon {
     }
 
     async fn start_with(state_dir: &Path, tunnel: FakeTunnel, firewall: FakeFirewall) -> Daemon {
-        let socket = state_dir.join("ankoud.sock");
+        let socket = ankou_ipc::testing::test_socket(state_dir);
         let watch = FakeWatch::default();
         let dns = FakeDns::default();
         let prober = FakeProber::default();
@@ -82,7 +80,7 @@ impl Daemon {
             run(cfg, system, stop_rx).await.unwrap();
         });
         for _ in 0..100 {
-            if socket.exists() {
+            if connect(&socket).await.is_ok() {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -443,6 +441,7 @@ async fn bad_client_does_not_disturb_others() {
     let dir = tempfile::tempdir().unwrap();
     let d = Daemon::start(dir.path(), FakeTunnel::default()).await;
     let mut w = d.watcher().await;
+    use tokio::io::AsyncWriteExt;
     let mut garbage = tokio::net::UnixStream::connect(&d.socket).await.unwrap();
     garbage.write_u32(7).await.unwrap();
     garbage.write_all(b"garbage").await.unwrap();
@@ -516,7 +515,9 @@ async fn stop_brings_tunnel_down() {
     d.stop().await;
     assert_eq!(tunnel.calls().last().map(String::as_str), Some("down"));
     assert!(!tunnel.is_up());
+    #[cfg(unix)]
     assert!(!socket.exists());
+    let _ = socket;
 }
 
 /// Sans handshake, le tunnel est retiré pendant l'attente : la machine garde Internet.

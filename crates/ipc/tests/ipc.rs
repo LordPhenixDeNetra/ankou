@@ -1,11 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-// Tests de socket : Unix seulement (named pipe Windows à l'étape 5).
-use ankou_ipc::{Framed, IpcError};
-#[cfg(unix)]
-use ankou_ipc::{IpcListener, connect};
+// Socket Unix ou named pipe Windows, selon la plateforme (`test_socket`).
+use ankou_ipc::testing::test_socket;
+use ankou_ipc::{Framed, IpcError, IpcListener, connect};
 use ankou_proto::ipc::ClientToDaemon;
-#[cfg(unix)]
 use ankou_proto::ipc::{DaemonToClient, IPC_PROTOCOL_VERSION};
 use tokio::io::AsyncWriteExt;
 
@@ -56,7 +54,6 @@ async fn garbage_json_is_an_error() {
 }
 
 /// Serveur d'une seule connexion qui répond `reply` au `Hello`.
-#[cfg(unix)]
 async fn serve_once(listener: IpcListener, reply: DaemonToClient) {
     let mut conn = listener.accept().await.unwrap();
     let hello = conn.recv::<ClientToDaemon>().await.unwrap();
@@ -69,11 +66,10 @@ async fn serve_once(listener: IpcListener, reply: DaemonToClient) {
     conn.send(&reply).await.unwrap();
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn connect_does_handshake() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("s.sock");
+    let path = test_socket(dir.path());
     let listener = IpcListener::bind(&path).await.unwrap();
     let server = tokio::spawn(serve_once(
         listener,
@@ -85,11 +81,10 @@ async fn connect_does_handshake() {
     server.await.unwrap();
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn incompatible_daemon_is_reported() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("s.sock");
+    let path = test_socket(dir.path());
     let listener = IpcListener::bind(&path).await.unwrap();
     let server = tokio::spawn(serve_once(
         listener,
@@ -102,14 +97,10 @@ async fn incompatible_daemon_is_reported() {
     server.await.unwrap();
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn missing_daemon_is_an_io_error() {
     let dir = tempfile::tempdir().unwrap();
-    let err = connect(&dir.path().join("absent.sock"))
-        .await
-        .err()
-        .unwrap();
+    let err = connect(&test_socket(dir.path())).await.err().unwrap();
     assert!(matches!(err, IpcError::Io(_)), "{err:?}");
 }
 
@@ -124,11 +115,10 @@ async fn stale_socket_is_replaced() {
     let _listener = IpcListener::bind(&path).await.unwrap();
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn second_daemon_is_refused() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("s.sock");
+    let path = test_socket(dir.path());
     let _first = IpcListener::bind(&path).await.unwrap();
     let err = IpcListener::bind(&path).await.err().unwrap();
     assert!(matches!(err, IpcError::AlreadyRunning), "{err:?}");
@@ -139,7 +129,7 @@ async fn second_daemon_is_refused() {
 async fn socket_is_group_only() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("s.sock");
+    let path = test_socket(dir.path());
     let listener = IpcListener::bind(&path).await.unwrap();
     let mode = std::fs::metadata(&path).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o660);

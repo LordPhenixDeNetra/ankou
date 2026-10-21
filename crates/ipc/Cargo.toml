@@ -6,6 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# Chemins de socket propres à chaque test (Unix : fichier, Windows : named pipe unique).
+testing = []
+
 [dependencies]
 ankou-proto.workspace = true
 interprocess.workspace = true
@@ -14,7 +18,11 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+widestring.workspace = true
+
 [dev-dependencies]
+ankou-ipc = { path = ".", features = ["testing"] }
 tempfile.workspace = true
 
 [lints]
