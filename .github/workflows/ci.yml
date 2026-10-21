@@ -115,6 +115,8 @@ jobs:
   # Windows réel (administrateur) : pilote wireguard-nt, pare-feu WFP, service par le pipe.
   e2e-windows:
     runs-on: windows-2025
+    # Un blocage du pare-feu mal retiré ne doit pas immobiliser la machine des heures.
+    timeout-minutes: 45
     defaults:
       run:
         shell: pwsh
@@ -150,6 +152,7 @@ jobs:
         working-directory: ankou
         run: |
           cargo build -p ankoud -p ankou-cli
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cargo test -p ankou-platform --test e2e_windows --no-run
       - name: Pare-feu WFP réel
         working-directory: ankou
@@ -161,7 +164,8 @@ jobs:
           $state = Join-Path $env:RUNNER_TEMP 'ankou'
           $daemon = Start-Process target\debug\ankoud.exe -ArgumentList '--socket', $env:ANKOU_SOCKET, '--state-dir', $state -PassThru -NoNewWindow
           Start-Sleep -Seconds 3
-          $out = target\debug\ankou-cli.exe status --lang en
+          # Plusieurs lignes : réunies avant la comparaison (sinon -notmatch filtre un tableau).
+          $out = (target\debug\ankou-cli.exe status --lang en) -join "`n"
           if ($out -notmatch 'Disconnected') { throw "status : $out" }
           # Sans kill switch : la machine de CI garde son réseau pendant le test.
           target\debug\ankou-cli.exe killswitch off --lang en
@@ -175,8 +179,13 @@ jobs:
           allowed_ips = ["10.8.0.0/16"]
           "@ | Set-Content ci.toml
           target\debug\ankou-cli.exe connect --config ci.toml --wait 0 --lang en
-          Start-Sleep -Seconds 2
-          if (-not (Get-NetAdapter -Name ankou0 -ErrorAction SilentlyContinue)) { throw "carte ankou0 absente" }
+          # La première carte installe le pilote : jusqu'à 30 s.
+          $found = $false
+          foreach ($i in 1..30) {
+            if (Get-NetAdapter -Name ankou0 -ErrorAction SilentlyContinue) { $found = $true; break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $found) { throw "carte ankou0 absente" }
           target\debug\ankou-cli.exe disconnect --lang en
           Start-Sleep -Seconds 2
           if (Get-NetAdapter -Name ankou0 -ErrorAction SilentlyContinue) { throw "carte ankou0 restée" }

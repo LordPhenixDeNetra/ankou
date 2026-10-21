@@ -20,6 +20,7 @@ tokio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 widestring.workspace = true
+windows-service.workspace = true
 
 [dev-dependencies]
 ankou-ipc = { path = ".", features = ["testing"] }

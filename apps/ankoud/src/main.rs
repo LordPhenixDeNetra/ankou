@@ -31,13 +31,56 @@ fn default_state_dir() -> PathBuf {
     }
 }
 
+/// Arguments d'`icacls` qui réservent le dossier d'état à SYSTEM et aux Administrateurs
+/// (héritage coupé, propriétaire remplacé, appliqué à tout le contenu) : `profile.toml`
+/// contient la clé privée, et `C:\ProgramData` est lisible par tous les utilisateurs.
+#[cfg_attr(not(windows), allow(dead_code))] // testé partout, utilisé sous Windows
+fn icacls_args(dir: &std::path::Path) -> Vec<String> {
+    let mut args = vec![dir.display().to_string()];
+    args.extend(
+        [
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:(OI)(CI)F",
+            "*S-1-5-32-544:(OI)(CI)F",
+            "/setowner",
+            "*S-1-5-32-544",
+            "/T",
+        ]
+        .map(String::from),
+    );
+    args
+}
+
+/// Crée le dossier d'état et le verrouille (Windows) ; refuse de démarrer sinon.
+#[cfg(windows)]
+fn secure_state_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let out = std::process::Command::new("icacls")
+        .args(icacls_args(dir))
+        .output()?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "droits du dossier {} non appliqués : {}",
+            dir.display(),
+            String::from_utf8_lossy(&out.stdout).trim()
+        );
+    }
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-    // Windows : journaux dans le dossier d'état (un service n'a pas de console) ; le dossier
-    // courant devient celui de l'exécutable, où `wireguard.dll` est cherchée (ADR 0009).
+    let mut cli = Cli::parse();
+    // Chemins absolus avant tout changement de dossier courant.
+    cli.state_dir = std::path::absolute(&cli.state_dir)?;
+    // Windows : dossier d'état réservé ; journaux dedans (un service n'a pas de console) ;
+    // dossier courant = celui de l'exécutable, où `wireguard.dll` est cherchée (ADR 0009).
     #[cfg(windows)]
-    if let Some(dir) = std::env::current_exe()?.parent() {
-        std::env::set_current_dir(dir)?;
+    {
+        secure_state_dir(&cli.state_dir)?;
+        if let Some(dir) = std::env::current_exe()?.parent() {
+            std::env::set_current_dir(dir)?;
+        }
     }
     let _log = lpdnsoft_log::init(lpdnsoft_log::LogConfig {
         app_name: "ankoud",
@@ -172,8 +215,26 @@ mod service {
 
 #[cfg(test)]
 mod tests {
-    use super::default_state_dir;
+    use super::{default_state_dir, icacls_args};
     use std::path::Path;
+
+    #[test]
+    fn state_dir_is_locked_to_system_and_admins() {
+        let args = icacls_args(Path::new(r"C:\ProgramData\aNkou"));
+        assert_eq!(
+            args,
+            [
+                r"C:\ProgramData\aNkou",
+                "/inheritance:r",
+                "/grant:r",
+                "*S-1-5-18:(OI)(CI)F",
+                "*S-1-5-32-544:(OI)(CI)F",
+                "/setowner",
+                "*S-1-5-32-544",
+                "/T",
+            ]
+        );
+    }
 
     #[test]
     fn default_state_dir_per_os() {

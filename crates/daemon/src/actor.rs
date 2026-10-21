@@ -214,6 +214,11 @@ impl Actor {
             }
             Command::Disconnect(reply) => {
                 self.handle(Event::Disconnect);
+                // Protection posée sans que le service le sache (pare-feu Windows démarré
+                // après lui, ADR 0009) : la déconnexion la retire quand même.
+                if self.status == Status::Disconnected && self.firewall.is_active() {
+                    self.clear_firewall();
+                }
                 let _ = reply.send(DaemonToClient::Done);
             }
             Command::GetSettings(reply) => {

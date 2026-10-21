@@ -24,6 +24,11 @@ pub enum IpcError {
     Closed,
     #[error("un autre service écoute déjà sur ce socket")]
     AlreadyRunning,
+    /// Windows : le canal par défaut est servi par un autre processus que le service.
+    #[error(
+        "le canal \\\\.\\pipe\\ankou est servi par le processus {0}, pas par le service ankoud"
+    )]
+    Impostor(u32),
 }
 
 /// Flux à trames : chaque message est une longueur `u32` puis son JSON.
@@ -122,9 +127,38 @@ fn name(path: &Path) -> std::io::Result<Name<'_>> {
     path.to_fs_name::<GenericFilePath>()
 }
 
+/// Le canal par défaut doit être servi par le service `ankoud` lui-même : sous Windows, un
+/// utilisateur local peut ouvrir ses propres instances de `\\.\pipe\ankou` et recevrait la
+/// configuration (clé privée comprise). Les autres chemins (tests, `--socket`) sont libres.
+pub fn server_trusted(path: &Path, server_pid: u32, service_pid: Option<u32>) -> bool {
+    path != default_socket() || service_pid == Some(server_pid)
+}
+
+/// PID du service Windows `ankoud`, s'il tourne.
+#[cfg(windows)]
+fn service_pid() -> Option<u32> {
+    use windows_service::service::ServiceAccess;
+    use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
+    let manager =
+        ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT).ok()?;
+    let service = manager
+        .open_service("ankoud", ServiceAccess::QUERY_STATUS)
+        .ok()?;
+    service.query_status().ok()?.process_id
+}
+
 /// Se connecte au service et fait la poignée de main.
 pub async fn connect(path: &Path) -> Result<Connection, IpcError> {
-    let mut conn = Framed::new(Stream::connect(name(path)?).await?);
+    let stream = Stream::connect(name(path)?).await?;
+    #[cfg(windows)]
+    {
+        use interprocess::local_socket::traits::StreamCommon;
+        let pid = stream.peer_creds()?.pid().unwrap_or(0);
+        if !server_trusted(path, pid, service_pid()) {
+            return Err(IpcError::Impostor(pid));
+        }
+    }
+    let mut conn = Framed::new(stream);
     conn.send(&ClientToDaemon::Hello {
         protocol_version: IPC_PROTOCOL_VERSION,
     })
@@ -179,6 +213,24 @@ impl IpcListener {
 
     pub async fn accept(&self) -> Result<Connection, IpcError> {
         Ok(Framed::new(self.listener.accept().await?))
+    }
+}
+
+#[cfg(test)]
+mod trust_tests {
+    use super::{default_socket, server_trusted};
+    use std::path::Path;
+
+    #[test]
+    fn only_the_service_may_serve_the_default_pipe() {
+        let default = default_socket();
+        assert!(server_trusted(&default, 42, Some(42)));
+        assert!(!server_trusted(&default, 42, Some(7)), "autre processus");
+        assert!(!server_trusted(&default, 42, None), "service absent");
+        assert!(
+            server_trusted(Path::new("/tmp/test.sock"), 42, None),
+            "socket de test"
+        );
     }
 }
 

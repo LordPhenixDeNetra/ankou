@@ -1064,3 +1064,21 @@ async fn firewall_reapplied_after_tunnel_up() {
     assert_eq!(d.firewall.active(), Some(policy(true)));
     d.stop().await;
 }
+
+/// Protection apparue sans que le service le sache (pare-feu Windows démarré après lui) :
+/// « Se déconnecter » la retire quand même, sinon la machine resterait coupée.
+#[tokio::test]
+async fn disconnect_clears_unknown_protection() {
+    let dir = tempfile::tempdir().unwrap();
+    let firewall = FakeFirewall::default();
+    let d = Daemon::start_with(dir.path(), FakeTunnel::default(), firewall.clone()).await;
+    let _w = d.watcher().await;
+    firewall.set_leftover(policy(true));
+    let mut c = d.client().await;
+    assert_eq!(
+        ask(&mut c, ClientToDaemon::Disconnect).await,
+        DaemonToClient::Done
+    );
+    assert_eq!(firewall.active(), None);
+    d.stop().await;
+}

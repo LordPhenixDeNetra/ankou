@@ -13,6 +13,7 @@ use defguard_wireguard_rs::peer::Peer;
 use defguard_wireguard_rs::{InterfaceConfiguration, Kernel, WGApi, WireguardInterfaceApi};
 use std::net::IpAddr;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 /// Chemin où `defguard_wireguard_rs` charge `wireguard.dll`, relatif au dossier courant
@@ -20,15 +21,16 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 pub const WIREGUARD_DLL: &str = r"resources-windows\binaries\wireguard-amd64.dll";
 
 pub fn dll_present() -> bool {
-    std::path::Path::new(WIREGUARD_DLL).is_file()
+    Path::new(WIREGUARD_DLL).is_file()
 }
 
-fn missing_dll() -> PlatformError {
+fn missing_dll(dll: &Path) -> PlatformError {
     let dir = std::env::current_dir()
         .map(|d| d.display().to_string())
         .unwrap_or_default();
     PlatformError::Unavailable(format!(
-        "wireguard.dll introuvable : {dir}\\{WIREGUARD_DLL}"
+        "wireguard.dll introuvable : {dir}\\{}",
+        dll.display()
     ))
 }
 
@@ -46,11 +48,21 @@ fn mask(net: &ipnet::IpNet) -> IpAddrMask {
     IpAddrMask::new(net.addr(), net.prefix_len())
 }
 
-/// Crée (ou rouvre) la carte. La bibliothèque panique si la DLL ne se charge pas (fichier
-/// abîmé, mauvaise architecture) : rattrapé ici, le service survit et le dit.
-fn create(api: &mut WGApi<Kernel>) -> Result<(), PlatformError> {
-    if !dll_present() {
-        return Err(missing_dll());
+/// Appel au pilote : `wireguard-nt` panique sur certaines erreurs de Windows (`assert!`
+/// dans la lecture de la configuration). Rattrapé : le service survit, l'appel échoue.
+fn guarded<T>(call: impl FnOnce() -> Result<T, PlatformError>) -> Result<T, PlatformError> {
+    catch_unwind(AssertUnwindSafe(call)).unwrap_or_else(|_| {
+        Err(PlatformError::Backend(
+            "le pilote WireGuard a échoué".into(),
+        ))
+    })
+}
+
+/// Crée (ou rouvre) la carte. La bibliothèque panique aussi si la DLL ne se charge pas
+/// (fichier abîmé, mauvaise architecture).
+fn create(api: &mut WGApi<Kernel>, dll: &Path) -> Result<(), PlatformError> {
+    if !dll.is_file() {
+        return Err(missing_dll(dll));
     }
     match catch_unwind(AssertUnwindSafe(|| api.create_interface())) {
         Ok(result) => result.map_err(map_err),
@@ -60,8 +72,22 @@ fn create(api: &mut WGApi<Kernel>) -> Result<(), PlatformError> {
     }
 }
 
+/// Compteurs et dernier handshake, lus sans risquer la panique du pilote.
+fn read_stats(api: &WGApi<Kernel>) -> Result<TunnelStats, PlatformError> {
+    let host = guarded(|| api.read_interface_data().map_err(map_err))?;
+    let mut stats = TunnelStats::default();
+    for peer in host.peers.values() {
+        stats.rx_bytes += peer.rx_bytes;
+        stats.tx_bytes += peer.tx_bytes;
+        stats.last_handshake = stats.last_handshake.max(peer.last_handshake);
+    }
+    Ok(stats)
+}
+
 pub struct WindowsTunnel {
     ifname: String,
+    /// Toujours `WIREGUARD_DLL` dans le service ; ailleurs dans les tests.
+    dll: PathBuf,
     api: Option<WGApi<Kernel>>,
 }
 
@@ -69,6 +95,7 @@ impl WindowsTunnel {
     pub fn new(ifname: &str) -> Self {
         Self {
             ifname: ifname.to_owned(),
+            dll: PathBuf::from(WIREGUARD_DLL),
             api: None,
         }
     }
@@ -92,9 +119,9 @@ impl Tunnel for WindowsTunnel {
             fwmark: None,
         };
         let mut api = WGApi::<Kernel>::new(self.ifname.clone()).map_err(map_err)?;
-        create(&mut api)?;
+        create(&mut api, &self.dll)?;
         // Adresses, routes (métrique 0 pour une route par défaut) et carte montée.
-        api.configure_interface(&config).map_err(map_err)?;
+        guarded(|| api.configure_interface(&config).map_err(map_err))?;
         self.api = Some(api);
         Ok(())
     }
@@ -114,14 +141,7 @@ impl Tunnel for WindowsTunnel {
             .api
             .as_ref()
             .ok_or_else(|| PlatformError::Backend("carte absente".into()))?;
-        let host = api.read_interface_data().map_err(map_err)?;
-        let mut stats = TunnelStats::default();
-        for peer in host.peers.values() {
-            stats.rx_bytes += peer.rx_bytes;
-            stats.tx_bytes += peer.tx_bytes;
-            stats.last_handshake = stats.last_handshake.max(peer.last_handshake);
-        }
-        Ok(stats)
+        read_stats(api)
     }
 }
 
@@ -150,16 +170,15 @@ impl WindowsProber {
             fwmark: None,
         };
         let mut api = WGApi::<Kernel>::new(name.to_owned()).ok()?;
-        create(&mut api).ok()?;
+        create(&mut api, Path::new(WIREGUARD_DLL)).ok()?;
         let measured = (|| {
-            api.configure_interface(&config).ok()?;
+            guarded(|| api.configure_interface(&config).map_err(map_err)).ok()?;
             let start = Instant::now();
             while start.elapsed() < timeout {
-                let seen = api.read_interface_data().ok().is_some_and(|host| {
-                    host.peers
-                        .values()
-                        .any(|p| p.last_handshake.is_some_and(|t| t > UNIX_EPOCH))
-                });
+                let seen = read_stats(&api)
+                    .ok()
+                    .and_then(|s| s.last_handshake)
+                    .is_some_and(|t| t > UNIX_EPOCH);
                 if seen {
                     return Some(start.elapsed());
                 }
@@ -183,7 +202,8 @@ impl Prober for WindowsProber {
         timeout: Duration,
     ) -> Vec<Duration> {
         let name = format!("{}{slot}", crate::PROBE_PREFIX);
-        (0..tries)
+        // Un seul essai : créer une carte wireguard-nt est lent et sérialisé (ADR 0009).
+        (0..tries.min(1))
             .filter_map(|_| Self::once(&name, interface, peer, timeout))
             .collect()
     }
@@ -229,9 +249,9 @@ allowed_ips = ["0.0.0.0/0"]
 
     #[test]
     fn missing_dll_is_unavailable() {
-        let dir = tempfile::tempdir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-        let err = WindowsTunnel::new("ankou0").up(&config()).unwrap_err();
+        let mut tunnel = WindowsTunnel::new("ankou0");
+        tunnel.dll = PathBuf::from(r"absent\wireguard-amd64.dll");
+        let err = tunnel.up(&config()).unwrap_err();
         assert!(matches!(err, PlatformError::Unavailable(_)), "{err:?}");
     }
 }

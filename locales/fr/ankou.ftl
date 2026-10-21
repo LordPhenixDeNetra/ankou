@@ -134,3 +134,4 @@ cli-daemon-missing-windows = Le service ankoud ne tourne pas : sc.exe start anko
 cli-daemon-denied-windows = Accès refusé au service ankoud : ouvrez aNkou depuis votre propre session Windows.
 ui-daemon-missing-windows = Le service ankoud ne tourne pas : sc.exe start ankoud (en administrateur)
 ui-daemon-denied-windows = Accès refusé au service ankoud : ouvrez aNkou depuis votre propre session Windows.
+cli-daemon-impostor = Refusé : le canal d'aNkou est servi par le processus { $pid }, pas par le service ankoud. Relancez le service (sc.exe start ankoud) et vérifiez ce processus.

@@ -32,9 +32,12 @@ Expand-Archive -Force "$env:TEMP\wgnt.zip" "$env:TEMP\wgnt"
 Get-AuthenticodeSignature "$env:TEMP\wgnt\wireguard-nt\bin\amd64\wireguard.dll" | Format-List Status, SignerCertificate
 Copy-Item "$env:TEMP\wgnt\wireguard-nt\bin\amd64\wireguard.dll" "$dest\resources-windows\binaries\wireguard-amd64.dll"
 
-# Service, démarré avec Windows et relancé s'il s'arrête
-sc.exe create ankoud binPath= "\"$dest\ankoud.exe\" --service" start= auto DisplayName= "aNkou VPN"
+# Service, démarré avec Windows après le pare-feu (BFE), relancé s'il plante ou s'arrête
+# sur une erreur
+New-Service -Name ankoud -DisplayName "aNkou VPN" -StartupType Automatic `
+  -BinaryPathName "`"$dest\ankoud.exe`" --service" -DependsOn BFE, nsi
 sc.exe failure ankoud reset= 0 actions= restart/5000
+sc.exe failureflag ankoud 1
 sc.exe start ankoud
 
 # Commandes accessibles partout (pour la session en cours ; ajoutez-le au PATH pour la suite)
@@ -109,3 +112,5 @@ L'étape 5a est terminée quand ces tests passent.
 - Pas de signature de code : Windows SmartScreen peut avertir au premier lancement de `ankou.exe`.
 - Mesure du serveur le plus rapide pendant une connexion : elle passe par le tunnel courant (ADR 0009) ; déconnecté, elle est exacte.
 - Le réseau local (imprimante, NAS) n'est pas joignable avec le kill switch, comme sous Linux.
+- Machines virtuelles (WSL2, Hyper-V, VirtualBox en NAT) : leur trafic routé par le PC n'est pas couvert par le kill switch pendant une reconnexion (ADR 0009).
+- Serveur le plus rapide : un seul essai par serveur sous Windows (ADR 0009).

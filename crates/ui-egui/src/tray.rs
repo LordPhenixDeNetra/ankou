@@ -157,6 +157,8 @@ mod native {
             .with_menu(Box::new(menu))
             .with_tooltip(&view.tooltip)
             .with_icon(picture(&view)?)
+            // Clic gauche : la fenêtre ; le menu reste au clic droit.
+            .with_menu_on_left_click(false)
             .build()
         {
             Ok(tray) => tray,

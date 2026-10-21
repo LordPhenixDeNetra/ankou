@@ -53,6 +53,7 @@ pub fn daemon_error_message(loc: &Localizer, e: &IpcError) -> String {
             }
         }
         IpcError::Incompatible(v) => t!(loc, "cli-daemon-incompatible", version = *v),
+        IpcError::Impostor(pid) => t!(loc, "cli-daemon-impostor", pid = *pid),
         other => {
             let detail = other.to_string();
             t!(loc, "cli-daemon-error", detail = detail.as_str())
