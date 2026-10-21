@@ -143,6 +143,23 @@ fn main() -> anyhow::Result<ExitCode> {
                     protocol = PROTOCOL_VERSION
                 )
             );
+            // Signalée sur la sortie d'erreur : la ligne de version reste seule sur stdout.
+            if std::env::var_os("ANKOU_NO_UPDATE_CHECK").is_none()
+                && let Some(newer) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?
+                    .block_on(ankou_api_client::latest_release())
+            {
+                eprintln!(
+                    "{}",
+                    t!(
+                        &loc,
+                        "cli-update-available",
+                        version = newer.as_str(),
+                        url = ankou_api_client::RELEASES_PAGE
+                    )
+                );
+            }
             ExitCode::SUCCESS
         }
         Command::Init { out } => init(&loc, &out)?,

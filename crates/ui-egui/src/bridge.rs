@@ -97,6 +97,12 @@ async fn main(
         .and_then(|p| Session::load(p).ok().flatten())
         .map(|s| s.api_url);
     out.send(Update::Account { session: api_url });
+    let update_out = out.clone();
+    tokio::spawn(async move {
+        if let Some(v) = ankou_api_client::latest_release().await {
+            update_out.send(Update::NewVersion(v));
+        }
+    });
     let (status_tx, status_rx) = watch::channel(None);
     let follow = tokio::spawn(follow_daemon(socket.clone(), out.clone(), status_tx));
     let stats = tokio::spawn(poll_stats(socket.clone(), out.clone(), status_rx));

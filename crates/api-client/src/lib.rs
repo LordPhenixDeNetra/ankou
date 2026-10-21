@@ -2,9 +2,11 @@
 
 mod device;
 mod session;
+mod update;
 
 pub use device::{load_servers, save_servers, servers_cache_path, to_entries};
 pub use session::{Session, session_path};
+pub use update::{RELEASES_PAGE, latest_release, newer_version};
 
 use ankou_proto::PublicKey;
 use ankou_proto::api::{

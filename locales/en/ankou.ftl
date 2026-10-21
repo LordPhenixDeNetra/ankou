@@ -1,4 +1,5 @@
 cli-version = { $app } { $version } (protocol { $protocol })
+cli-update-available = A newer version is available: { $version } ({ $url })
 cli-init-written = Configuration written to { $path }. Public key to give to the server: { $public_key }
 cli-init-exists = { $path } already exists and was not overwritten.
 cli-config-invalid = Invalid configuration in { $path }: { $detail }
@@ -123,6 +124,7 @@ ui-language = Language
 ui-language-system = System
 ui-about-tagline = VPN client of the LPDNSoft suite.
 ui-about-version = Version { $version }
+ui-about-update = Version { $version } is available: download
 ui-about-license = License: MIT OR Apache-2.0
 ui-about-source = Source code
 ui-tray-connect = Connect

@@ -1,0 +1,68 @@
+<!-- MSI d'aNkou (WiX 5, ADR 0011). Construit par .github/workflows/release.yml :
+     wix build packaging/windows/ankou.wxs -arch x64 -ext WixToolset.Util.wixext
+       -d Version=1.0.0 -d BinDir=target\release -d Dll=<wireguard.dll vérifiée> -o ankou.msi -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <!-- UpgradeCode fixe : chaque nouvelle version remplace la précédente. -->
+  <Package Name="aNkou" Manufacturer="LPDNSoft" Version="$(Version)"
+           UpgradeCode="7EC5AFA4-C284-4A4F-9D99-9349FACC82B7" Scope="perMachine" Language="1036">
+    <MajorUpgrade DowngradeErrorMessage="Une version plus récente d'aNkou est déjà installée." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="aNkou">
+        <!-- Service : démarré avec Windows après le pare-feu (BFE), relancé s'il plante. -->
+        <Component Id="Daemon">
+          <File Id="AnkoudExe" Source="$(BinDir)\ankoud.exe" KeyPath="yes" />
+          <ServiceInstall Name="ankoud" DisplayName="aNkou VPN"
+                          Description="Service du VPN aNkou (tunnel WireGuard, kill switch)."
+                          Type="ownProcess" Start="auto" ErrorControl="normal"
+                          Account="LocalSystem" Arguments="--service">
+            <ServiceDependency Id="BFE" />
+            <ServiceDependency Id="nsi" />
+            <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart"
+                                ThirdFailureActionType="restart" RestartServiceDelayInSeconds="5"
+                                ResetPeriodInDays="1" />
+          </ServiceInstall>
+          <ServiceControl Id="AnkoudControl" Name="ankoud" Start="install" Stop="both"
+                          Remove="uninstall" Wait="yes" />
+        </Component>
+        <!-- ankou-cli accessible partout. -->
+        <Component Id="Cli">
+          <File Id="AnkouCliExe" Source="$(BinDir)\ankou-cli.exe" KeyPath="yes" />
+          <Environment Id="PathEntry" Name="PATH" Value="[INSTALLFOLDER]" Part="last"
+                       Action="set" System="yes" />
+        </Component>
+        <Component Id="App">
+          <File Id="AnkouExe" Source="$(BinDir)\ankou.exe" KeyPath="yes" />
+        </Component>
+        <!-- Chemin attendu par defguard_wireguard_rs (ADR 0009). -->
+        <Directory Id="ResourcesDir" Name="resources-windows">
+          <Directory Id="BinariesDir" Name="binaries">
+            <Component Id="WireGuardDll">
+              <File Id="WireGuardDllFile" Source="$(Dll)" Name="wireguard-amd64.dll" KeyPath="yes" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="AppShortcut" Name="aNkou" Target="[INSTALLFOLDER]ankou.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\LPDNSoft\aNkou" Name="StartMenuShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- Désinstallation (pas mise à jour) : protection levée avant l'arrêt du service,
+         sinon les filtres WFP persistants couperaient Internet (ADR 0006, 0009). -->
+    <CustomAction Id="DisconnectBeforeRemove" FileRef="AnkouCliExe" ExeCommand="disconnect"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="DisconnectBeforeRemove" Before="StopServices"
+              Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

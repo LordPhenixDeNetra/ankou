@@ -15,3 +15,47 @@ clap.workspace = true
 
 [lints]
 workspace = true
+
+# Paquets Linux de la release (ADR 0011) : application, CLI et service, à construire
+# après `cargo build --release -p ankou -p ankou-cli -p ankoud`.
+[package.metadata.deb]
+maintainer = "LordPhenixDeNetra <69590712+LordPhenixDeNetra@users.noreply.github.com>"
+extended-description = "Client VPN WireGuard de la suite LPDNSoft : application, ankou-cli et service ankoud."
+section = "net"
+depends = "$auto, iproute2, nftables, systemd"
+assets = [
+    ["target/release/ankoud", "usr/bin/", "755"],
+    ["target/release/ankou-cli", "usr/bin/", "755"],
+    ["target/release/ankou", "usr/bin/", "755"],
+    ["../../packaging/linux/ankou.desktop", "usr/share/applications/", "644"],
+]
+maintainer-scripts = "../../packaging/linux/debian/"
+systemd-units = { unit-name = "ankoud", unit-scripts = "../../packaging/linux/", enable = true, start = true }
+
+[package.metadata.generate-rpm]
+summary = "Client VPN WireGuard de la suite LPDNSoft"
+assets = [
+    { source = "target/release/ankoud", dest = "/usr/bin/ankoud", mode = "755" },
+    { source = "target/release/ankou-cli", dest = "/usr/bin/ankou-cli", mode = "755" },
+    { source = "target/release/ankou", dest = "/usr/bin/ankou", mode = "755" },
+    { source = "../../packaging/linux/ankoud.service", dest = "/usr/lib/systemd/system/ankoud.service", mode = "644" },
+    { source = "../../packaging/linux/ankou.desktop", dest = "/usr/share/applications/ankou.desktop", mode = "644" },
+]
+post_install_script = """
+getent group ankou >/dev/null || groupadd --system ankou
+systemctl daemon-reload || :
+systemctl enable --now ankoud.service || :
+"""
+# Désinstallation seule ($1 = 0), pas mise à jour : protection levée avant l'arrêt du
+# service, sinon le kill switch resterait (ADR 0006).
+pre_uninstall_script = """
+if [ "$1" -eq 0 ]; then
+    ankou-cli disconnect >/dev/null 2>&1 || :
+    systemctl disable --now ankoud.service || :
+fi
+"""
+
+[package.metadata.generate-rpm.requires]
+iproute = "*"
+nftables = "*"
+systemd = "*"

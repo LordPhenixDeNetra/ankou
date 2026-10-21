@@ -20,7 +20,7 @@ git clone https://github.com/LordPhenixDeNetra/lpdnsoft-libs.git
 git clone https://github.com/LordPhenixDeNetra/ankou.git
 cd ankou
 cargo run -p ankou-cli -- version              # langue du système
-cargo run -p ankou-cli -- version --lang fr    # aNkou 0.1.0 (protocole 1)
+cargo run -p ankou-cli -- version --lang fr    # aNkou 1.0.0 (protocole 1)
 cargo run -p ankou-cli -- init --out client.toml   # nouvelle clé + modèle de configuration
 ```
 

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Désinstallation : protection levée avant l'arrêt du service, sinon la table nftables
+# du kill switch resterait et couperait Internet (ADR 0006).
+set -e
+if [ "$1" = remove ]; then
+    ankou-cli disconnect >/dev/null 2>&1 || true
+fi
+#DEBHELPER#

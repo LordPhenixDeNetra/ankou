@@ -1,0 +1,8 @@
+#!/bin/sh
+# Groupe « ankou » : ses membres pilotent le VPN par le socket (ADR 0005). Créé avant
+# le démarrage du service, que cargo-deb ajoute à la place de la balise ci-dessous.
+set -e
+if [ "$1" = configure ]; then
+    getent group ankou >/dev/null || groupadd --system ankou
+fi
+#DEBHELPER#
