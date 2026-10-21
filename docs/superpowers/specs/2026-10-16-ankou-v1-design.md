@@ -64,10 +64,12 @@ Le client et le serveur partagent un dépôt pour que `ankou-proto` (contrat com
 | 6 | Connexion automatique au démarrage | 3 |
 | 7 | Icône dans la zone de notification + menu rapide | 4 |
 | 8 | Statistiques en direct (débit, octets, durée) | 4 |
-| 9 | Split tunneling par application | 6 |
-| 10 | Connexion automatique sur Wi-Fi non sécurisé | 6 |
-| 11 | Blocage pubs/traqueurs par DNS | 6 |
-| 12 | Serveurs spécialisés (étiquettes : streaming, P2P…) | 6 |
+| 9 | Split tunneling par application | 6 (v1.1) |
+| 10 | Connexion automatique sur Wi-Fi non sécurisé | 6 (v1.1) |
+| 11 | Blocage pubs/traqueurs par DNS | 6 (v1.1) |
+| 12 | Serveurs spécialisés (étiquettes : streaming, P2P…) | 6 (v1.1) |
+
+**v1.0.0 = fonctions 1 à 8** (ADR 0011) : les fonctions 9 à 12 arrivent en v1.1. Le filtre `ankou-cli connect --fastest --tag` existe déjà ; leur affichage dans l'interface vient avec la v1.1.
 
 **Hors v1 :** paiements/abonnements, inscription libre publique (codée mais désactivée), applis mobiles, launcher, signature de code macOS/Windows (ajoutée quand les certificats existeront).
 
@@ -371,8 +373,8 @@ Benchmarks `criterion` sur les chemins chauds (core, DNS, sérialisation IPC), c
 | 3 | `ankoud`, IPC, kill switch, DNS/IPv6, reconnexion, sélection auto, démarrage auto | Fonctions 1–6 ; test e2e de fuite vert |
 | 4 | UI egui (en/fr), icône de notification, statistiques | Fonctions 7–8 ; appli utilisable au quotidien |
 | 5 | Moteur Windows (wireguard-nt) et macOS (boringtun/utun) + plateformes `Firewall`/`Dns` correspondantes | Fonctions 1–8 sur les 3 OS |
-| 6 | Split tunneling, Wi-Fi non sécurisé, blocage pubs, étiquettes serveurs | Fonctions 9–12 : v1 complète |
-| 7 | Installeurs, releases, auto-vérification des mises à jour | Release v1.0.0 publiée |
+| 7 | Installeurs, releases, auto-vérification des mises à jour | Release v1.0.0 publiée (fonctions 1–8) |
+| 6 | Split tunneling, Wi-Fi non sécurisé, blocage pubs, étiquettes serveurs | Fonctions 9–12 : release v1.1 (après la v1.0.0, ADR 0011) |
 
 Chaque étape fait l'objet de son propre plan d'implémentation détaillé.
 
