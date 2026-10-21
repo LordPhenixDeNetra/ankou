@@ -78,8 +78,10 @@ pub fn disc_rgba(tone: Tone) -> Vec<u8> {
 #[cfg(target_os = "linux")]
 fn icon(tone: Tone) -> ksni::Icon {
     let data = disc_rgba(tone)
-        .chunks_exact(4)
-        .flat_map(|p| [p[3], p[0], p[1], p[2]])
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .flat_map(|[r, g, b, a]| [*a, *r, *g, *b])
         .collect();
     ksni::Icon {
         width: 32,

@@ -327,18 +327,15 @@ mod tests {
         let mut loc = crate::localizer().unwrap();
         loc.negotiate(&["en".parse().unwrap()]);
         let io = |k| IpcError::Io(std::io::Error::from(k));
-        assert!(
-            daemon_error_message(&loc, &io(ErrorKind::NotFound))
-                .contains("systemctl enable --now ankoud")
-        );
-        assert!(
-            daemon_error_message(&loc, &io(ErrorKind::ConnectionRefused))
-                .contains("systemctl enable --now ankoud")
-        );
-        assert!(
-            daemon_error_message(&loc, &io(ErrorKind::PermissionDenied))
-                .contains("usermod -aG ankou")
-        );
+        // Chaque système dit comment démarrer son service et obtenir l'accès.
+        let (start, access) = if cfg!(windows) {
+            ("sc.exe start ankoud", "your own Windows session")
+        } else {
+            ("systemctl enable --now ankoud", "usermod -aG ankou")
+        };
+        assert!(daemon_error_message(&loc, &io(ErrorKind::NotFound)).contains(start));
+        assert!(daemon_error_message(&loc, &io(ErrorKind::ConnectionRefused)).contains(start));
+        assert!(daemon_error_message(&loc, &io(ErrorKind::PermissionDenied)).contains(access));
         assert!(daemon_error_message(&loc, &IpcError::Incompatible(2)).contains('2'));
     }
 

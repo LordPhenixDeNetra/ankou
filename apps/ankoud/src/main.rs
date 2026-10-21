@@ -31,40 +31,44 @@ fn default_state_dir() -> PathBuf {
     }
 }
 
-/// Arguments d'`icacls` qui réservent le dossier d'état à SYSTEM et aux Administrateurs
-/// (héritage coupé, propriétaire remplacé, appliqué à tout le contenu) : `profile.toml`
+/// Appels à `icacls` qui réservent le dossier d'état à SYSTEM et aux Administrateurs :
+/// droits (héritage coupé), puis propriétaire, chacun appliqué à tout le contenu. Deux
+/// appels : `icacls` refuse `/grant` et `/setowner` dans la même commande. `profile.toml`
 /// contient la clé privée, et `C:\ProgramData` est lisible par tous les utilisateurs.
 #[cfg_attr(not(windows), allow(dead_code))] // testé partout, utilisé sous Windows
-fn icacls_args(dir: &std::path::Path) -> Vec<String> {
-    let mut args = vec![dir.display().to_string()];
-    args.extend(
-        [
+fn icacls_calls(dir: &std::path::Path) -> [Vec<String>; 2] {
+    let dir = dir.display().to_string();
+    let call = |rest: &[&str]| {
+        std::iter::once(dir.clone())
+            .chain(rest.iter().map(|s| (*s).to_owned()))
+            .collect()
+    };
+    [
+        call(&[
             "/inheritance:r",
             "/grant:r",
             "*S-1-5-18:(OI)(CI)F",
             "*S-1-5-32-544:(OI)(CI)F",
-            "/setowner",
-            "*S-1-5-32-544",
             "/T",
-        ]
-        .map(String::from),
-    );
-    args
+        ]),
+        call(&["/setowner", "*S-1-5-32-544", "/T"]),
+    ]
 }
 
 /// Crée le dossier d'état et le verrouille (Windows) ; refuse de démarrer sinon.
 #[cfg(windows)]
 fn secure_state_dir(dir: &std::path::Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dir)?;
-    let out = std::process::Command::new("icacls")
-        .args(icacls_args(dir))
-        .output()?;
-    if !out.status.success() {
-        anyhow::bail!(
-            "droits du dossier {} non appliqués : {}",
-            dir.display(),
-            String::from_utf8_lossy(&out.stdout).trim()
-        );
+    for args in icacls_calls(dir) {
+        let out = std::process::Command::new("icacls").args(&args).output()?;
+        if !out.status.success() {
+            anyhow::bail!(
+                "droits du dossier {} non appliqués : {} {}",
+                dir.display(),
+                String::from_utf8_lossy(&out.stdout).trim(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            );
+        }
     }
     Ok(())
 }
@@ -215,24 +219,26 @@ mod service {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_state_dir, icacls_args};
+    use super::{default_state_dir, icacls_calls};
     use std::path::Path;
 
     #[test]
     fn state_dir_is_locked_to_system_and_admins() {
-        let args = icacls_args(Path::new(r"C:\ProgramData\aNkou"));
+        let [grant, owner] = icacls_calls(Path::new(r"C:\ProgramData\aNkou"));
         assert_eq!(
-            args,
+            grant,
             [
                 r"C:\ProgramData\aNkou",
                 "/inheritance:r",
                 "/grant:r",
                 "*S-1-5-18:(OI)(CI)F",
                 "*S-1-5-32-544:(OI)(CI)F",
-                "/setowner",
-                "*S-1-5-32-544",
                 "/T",
             ]
+        );
+        assert_eq!(
+            owner,
+            [r"C:\ProgramData\aNkou", "/setowner", "*S-1-5-32-544", "/T"]
         );
     }
 

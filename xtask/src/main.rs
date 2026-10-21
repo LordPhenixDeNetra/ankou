@@ -16,7 +16,8 @@ const STEPS: &[&[&str]] = &[
         "-D",
         "warnings",
     ],
-    &["test", "--workspace"],
+    // Tous les binaires de test, même après un échec : aucun échec n'en cache un autre.
+    &["test", "--workspace", "--no-fail-fast"],
     &["deny", "check"],
 ];
 
