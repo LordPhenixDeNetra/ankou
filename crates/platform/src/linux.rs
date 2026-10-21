@@ -1,6 +1,6 @@
 //! WireGuard noyau Linux : configuration par netlink, routage par `ip` comme `wg-quick` (ADR 0002).
 
-use crate::{PlatformError, Prober, Tunnel, TunnelStats, resolve_endpoint};
+use crate::{PROBE_PREFIX, PlatformError, Prober, Tunnel, TunnelStats, resolve_endpoint};
 use ankou_proto::{InterfaceSection, PeerSection, TunnelConfig};
 use defguard_wireguard_rs::error::WireguardInterfaceError;
 use defguard_wireguard_rs::key::Key;
@@ -118,9 +118,6 @@ impl Tunnel for KernelTunnel {
         Ok(stats)
     }
 }
-
-/// Préfixe des interfaces temporaires de mesure.
-const PROBE_PREFIX: &str = "ankoup";
 
 /// Mesure par handshake : interface sans adresse ni route, marquée `FWMARK` (ses paquets
 /// sortent hors tunnel), pair en keepalive 1 s pour lancer le handshake tout de suite.

@@ -8,6 +8,8 @@ mod firewall;
 mod linux;
 mod probe;
 mod watch;
+#[cfg(windows)]
+mod windows;
 
 use ankou_proto::{Endpoint, ErrorCode, TunnelConfig};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -17,6 +19,12 @@ pub use dns::{Dns, default_dns, resolvectl_commands};
 pub use firewall::{Firewall, FirewallPolicy, default_firewall, nft_ruleset};
 pub use probe::{Prober, default_prober};
 pub use watch::{SystemWatch, default_watch, parse_default_route};
+#[cfg(windows)]
+pub use windows::{WIREGUARD_DLL, dll_present};
+
+/// Préfixe des interfaces temporaires de mesure (`ankoup<n>`).
+#[cfg(any(target_os = "linux", windows))]
+pub(crate) const PROBE_PREFIX: &str = "ankoup";
 
 /// Nom de l'interface WireGuard du client.
 pub const INTERFACE: &str = "ankou0";
@@ -87,21 +95,25 @@ pub fn default_tunnel() -> Box<dyn Tunnel + Send> {
     {
         Box::new(linux::KernelTunnel::new(INTERFACE))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        Box::new(windows::WindowsTunnel::new(INTERFACE))
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         Box::new(Unsupported)
     }
 }
 
-/// Systèmes dont le moteur arrive à l'étape 5.
-#[cfg(not(target_os = "linux"))]
+/// macOS : moteur à l'étape 5b.
+#[cfg(not(any(target_os = "linux", windows)))]
 struct Unsupported;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 impl Tunnel for Unsupported {
     fn up(&mut self, _cfg: &TunnelConfig) -> Result<(), PlatformError> {
         Err(PlatformError::Unavailable(
-            "moteur prévu à l'étape 5 (Linux seulement pour l'instant)".into(),
+            "moteur macOS prévu à l'étape 5b".into(),
         ))
     }
     fn down(&mut self) -> Result<(), PlatformError> {

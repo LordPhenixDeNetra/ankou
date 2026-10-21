@@ -18,10 +18,10 @@ pub trait Prober: Send + Sync {
     fn cleanup(&self);
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 struct NoProber;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 impl Prober for NoProber {
     fn probe(
         &self,
@@ -36,13 +36,17 @@ impl Prober for NoProber {
     fn cleanup(&self) {}
 }
 
-/// Mesure du système courant (sans effet hors Linux pour l'instant).
+/// Mesure du système courant (sans effet sous macOS jusqu'à l'étape 5b).
 pub fn default_prober() -> Box<dyn Prober> {
     #[cfg(target_os = "linux")]
     {
         Box::new(crate::linux::KernelProber)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        Box::new(crate::windows::WindowsProber)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         Box::new(NoProber)
     }
