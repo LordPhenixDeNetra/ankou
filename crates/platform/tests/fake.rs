@@ -1,7 +1,9 @@
 #![allow(clippy::unwrap_used)]
 
 use ankou_platform::fake::{FakeTunnel, FakeWatch};
-use ankou_platform::{PlatformError, SystemWatch, Tunnel, parse_default_route, resolve_endpoint};
+use ankou_platform::{
+    INTERFACE, PlatformError, SystemWatch, Tunnel, parse_default_route, resolve_endpoint,
+};
 use ankou_proto::{Endpoint, ErrorCode, TunnelConfig};
 use std::time::{Duration, SystemTime};
 
@@ -27,7 +29,7 @@ fn fake_records_up_and_down() {
     assert!(t.stats().unwrap().last_handshake.is_some());
     assert!(handle.is_up());
     t.down().unwrap();
-    assert_eq!(handle.calls(), ["up ankou0", "down"]);
+    assert_eq!(handle.calls(), [format!("up {INTERFACE}"), "down".into()]);
 }
 
 #[test]

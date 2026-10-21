@@ -224,7 +224,7 @@ jobs:
           sudo target/debug/ankoud --socket "$ANKOU_SOCKET" --state-dir /tmp/ankou-ci-state &
           sleep 3
           # Le client tourne sans sudo : le groupe staff du dossier du socket suffit.
-          target/debug/ankou-cli status --lang en | grep -q Disconnected
+          target/debug/ankou-cli status --lang en | grep Disconnected
           # Sans kill switch : la machine de CI garde son réseau pendant le test.
           target/debug/ankou-cli killswitch off --lang en
           cat > ci.toml <<'TOML'

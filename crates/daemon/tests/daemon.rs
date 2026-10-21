@@ -4,7 +4,7 @@
 use ankou_daemon::{DaemonConfig, System, run};
 use ankou_ipc::{Connection, connect};
 use ankou_platform::fake::{FakeDns, FakeFirewall, FakeProber, FakeTunnel, FakeWatch};
-use ankou_platform::{FirewallPolicy, PlatformError};
+use ankou_platform::{FirewallPolicy, INTERFACE, PlatformError};
 use ankou_proto::ipc::{ClientToDaemon, DaemonSettings, DaemonToClient, ServerEntry, Status};
 use ankou_proto::{ErrorCode, TunnelConfig};
 use std::path::{Path, PathBuf};
@@ -199,7 +199,10 @@ async fn connect_then_disconnect() {
         DaemonToClient::Done
     );
     wait_status(&mut w, |s| *s == Status::Disconnected).await;
-    assert_eq!(d.tunnel.calls(), ["down", "up ankou0", "down"]);
+    assert_eq!(
+        d.tunnel.calls(),
+        ["down", &format!("up {INTERFACE}"), "down"]
+    );
     d.stop().await;
 }
 
@@ -300,7 +303,7 @@ async fn auto_connect_at_start() {
     })
     .await
     .unwrap();
-    assert_eq!(tunnel.calls(), ["down", "up ankou0"]);
+    assert_eq!(tunnel.calls(), ["down", &format!("up {INTERFACE}")]);
     d.stop().await;
 }
 
@@ -317,7 +320,10 @@ async fn link_loss_reconnects() {
         "{seen:?}"
     );
     let calls = d.tunnel.calls();
-    assert_eq!(calls[calls.len() - 2..], ["down", "up ankou0"]);
+    assert_eq!(
+        calls[calls.len() - 2..],
+        ["down", &format!("up {INTERFACE}")]
+    );
     d.stop().await;
 }
 
@@ -558,7 +564,7 @@ async fn vanished_interface_reconnects() {
 fn policy(kill_switch: bool) -> FirewallPolicy {
     FirewallPolicy {
         kill_switch,
-        interface: "ankou0".into(),
+        interface: INTERFACE.into(),
         endpoints: vec!["127.0.0.1:51820".parse().unwrap()],
     }
 }
@@ -685,7 +691,7 @@ async fn dns_set_when_connected() {
     connect_now(&d, &mut w).await;
     assert_eq!(
         d.dns.current(),
-        Some(("ankou0".into(), ankou_proto::DEFAULT_DNS.to_vec()))
+        Some((INTERFACE.into(), ankou_proto::DEFAULT_DNS.to_vec()))
     );
     let mut custom = config();
     custom.interface.dns = vec!["1.1.1.1".parse().unwrap()];
@@ -693,7 +699,7 @@ async fn dns_set_when_connected() {
     wait_status(&mut w, connected).await;
     assert_eq!(
         d.dns.current(),
-        Some(("ankou0".into(), vec!["1.1.1.1".parse().unwrap()]))
+        Some((INTERFACE.into(), vec!["1.1.1.1".parse().unwrap()]))
     );
     let mut c = d.client().await;
     ask(&mut c, ClientToDaemon::Disconnect).await;
