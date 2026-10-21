@@ -34,7 +34,11 @@ fn socket() -> PathBuf {
 pub fn daemon_error_message(loc: &Localizer, e: &IpcError) -> String {
     match e {
         IpcError::Io(io) if io.kind() == ErrorKind::PermissionDenied => {
-            t!(loc, "cli-daemon-denied")
+            if cfg!(windows) {
+                t!(loc, "cli-daemon-denied-windows")
+            } else {
+                t!(loc, "cli-daemon-denied")
+            }
         }
         IpcError::Io(io)
             if matches!(
@@ -42,7 +46,11 @@ pub fn daemon_error_message(loc: &Localizer, e: &IpcError) -> String {
                 ErrorKind::NotFound | ErrorKind::ConnectionRefused
             ) =>
         {
-            t!(loc, "cli-daemon-missing")
+            if cfg!(windows) {
+                t!(loc, "cli-daemon-missing-windows")
+            } else {
+                t!(loc, "cli-daemon-missing")
+            }
         }
         IpcError::Incompatible(v) => t!(loc, "cli-daemon-incompatible", version = *v),
         other => {

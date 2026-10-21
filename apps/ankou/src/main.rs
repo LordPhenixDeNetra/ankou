@@ -1,3 +1,5 @@
+// Application fenêtrée sous Windows : pas de console ouverte à côté.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 //! `ankou` : la fenêtre d'aNkou, télécommande du service `ankoud`.
 
 use ankou_proto::APP_ID;

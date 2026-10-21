@@ -45,6 +45,10 @@ egui = { version = "0.36", default-features = false }
 egui_kittest = "0.36"
 # Icône de notification Linux (StatusNotifierItem par D-Bus, sans GTK ; ADR 0008).
 ksni = { version = "0.3", default-features = false, features = ["tokio"] }
+# Icône de notification Windows et macOS (ADR 0009).
+tray-icon = "0.26"
+# Service Windows (ADR 0009).
+windows-service = "0.8"
 argon2 = "0.6"
 axum = { version = "0.8", features = ["macros", "ws"] }
 futures-util = "0.3"

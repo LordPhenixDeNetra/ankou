@@ -130,3 +130,7 @@ ui-tray-disconnect = Disconnect
 ui-tray-fastest = Fastest server
 ui-tray-open = Open aNkou
 ui-tray-quit = Quit the interface
+cli-daemon-missing-windows = The ankoud service is not running: sc.exe start ankoud (as administrator)
+cli-daemon-denied-windows = Access to the ankoud service denied: open aNkou from your own Windows session.
+ui-daemon-missing-windows = The ankoud service is not running: sc.exe start ankoud (as administrator)
+ui-daemon-denied-windows = Access to the ankoud service denied: open aNkou from your own Windows session.
