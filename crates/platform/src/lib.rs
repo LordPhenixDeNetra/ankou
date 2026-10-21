@@ -10,13 +10,15 @@ mod probe;
 mod watch;
 #[cfg(windows)]
 mod windows;
+#[cfg(windows)]
+mod windows_firewall;
 
 use ankou_proto::{Endpoint, ErrorCode, TunnelConfig};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::SystemTime;
 
 pub use dns::{Dns, default_dns, resolvectl_commands};
-pub use firewall::{Firewall, FirewallPolicy, default_firewall, nft_ruleset};
+pub use firewall::{Firewall, FirewallPolicy, WfpRule, default_firewall, nft_ruleset, wfp_rules};
 pub use probe::{Prober, default_prober};
 pub use watch::{SystemWatch, default_watch, parse_default_route};
 #[cfg(windows)]

@@ -18,6 +18,9 @@ tracing = "0.1"
 defguard_wireguard_rs.workspace = true
 ipnet.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+wfp.workspace = true
+
 [dev-dependencies]
 ankou-platform = { path = ".", features = ["fake"] }
 tempfile.workspace = true

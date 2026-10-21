@@ -68,15 +68,56 @@ pub fn nft_ruleset(policy: &FirewallPolicy) -> String {
     s
 }
 
-/// Systèmes sans pare-feu géré (avant l'étape 5).
-#[cfg(not(target_os = "linux"))]
+/// Règle WFP (Windows), traduite de la politique sans E/S pour être testée partout.
+/// Mêmes effets que `nft_ruleset` : permissions d'abord, blocages ensuite.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WfpRule {
+    /// Carte du tunnel, IPv4 et IPv6 (posée seulement si elle existe déjà).
+    PermitInterface {
+        name: String,
+    },
+    /// `127.0.0.0/8` et `::1`.
+    PermitLoopback,
+    /// UDP vers un serveur, hors tunnel (paquets WireGuard chiffrés).
+    PermitEndpoint(SocketAddr),
+    /// DHCPv4 (port distant 67) : le bail se renouvelle sous kill switch.
+    PermitDhcpV4,
+    /// Découverte des voisins, sans laquelle un endpoint IPv6 reste injoignable.
+    PermitNeighbourDiscovery,
+    BlockAllV6,
+    BlockAllV4,
+}
+
+pub fn wfp_rules(policy: &FirewallPolicy) -> Vec<WfpRule> {
+    let mut rules = vec![
+        WfpRule::PermitInterface {
+            name: policy.interface.clone(),
+        },
+        WfpRule::PermitLoopback,
+    ];
+    rules.extend(policy.endpoints.iter().map(|e| WfpRule::PermitEndpoint(*e)));
+    if policy.endpoints.iter().any(SocketAddr::is_ipv6) {
+        rules.push(WfpRule::PermitNeighbourDiscovery);
+    }
+    if policy.kill_switch {
+        rules.push(WfpRule::PermitDhcpV4);
+    }
+    rules.push(WfpRule::BlockAllV6);
+    if policy.kill_switch {
+        rules.push(WfpRule::BlockAllV4);
+    }
+    rules
+}
+
+/// macOS : pare-feu à l'étape 5b.
+#[cfg(not(any(target_os = "linux", windows)))]
 struct NoFirewall;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", windows)))]
 impl Firewall for NoFirewall {
     fn apply(&mut self, _policy: &FirewallPolicy) -> Result<(), PlatformError> {
         Err(PlatformError::Unavailable(
-            "pare-feu prévu à l'étape 5 (Linux seulement pour l'instant)".into(),
+            "pare-feu macOS prévu à l'étape 5b".into(),
         ))
     }
     fn clear(&mut self) -> Result<(), PlatformError> {
@@ -147,8 +188,51 @@ pub fn default_firewall() -> Box<dyn Firewall> {
     {
         Box::new(nft::Nft)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        Box::new(crate::windows_firewall::WfpFirewall)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         Box::new(NoFirewall)
+    }
+}
+
+#[cfg(test)]
+mod wfp_tests {
+    use super::*;
+
+    #[test]
+    fn wfp_rules_cover_policy() {
+        let v4: SocketAddr = "1.2.3.4:51820".parse().unwrap();
+        let policy = FirewallPolicy {
+            kill_switch: true,
+            interface: "ankou0".into(),
+            endpoints: vec![v4],
+        };
+        assert_eq!(
+            wfp_rules(&policy),
+            [
+                WfpRule::PermitInterface {
+                    name: "ankou0".into()
+                },
+                WfpRule::PermitLoopback,
+                WfpRule::PermitEndpoint(v4),
+                WfpRule::PermitDhcpV4,
+                WfpRule::BlockAllV6,
+                WfpRule::BlockAllV4,
+            ]
+        );
+        let v6: SocketAddr = "[2001:db8::1]:51820".parse().unwrap();
+        let rules = wfp_rules(&FirewallPolicy {
+            kill_switch: false,
+            interface: "ankou0".into(),
+            endpoints: vec![v6],
+        });
+        assert!(rules.contains(&WfpRule::PermitEndpoint(v6)));
+        assert!(rules.contains(&WfpRule::PermitNeighbourDiscovery));
+        assert!(rules.contains(&WfpRule::BlockAllV6));
+        assert!(!rules.contains(&WfpRule::BlockAllV4));
+        assert!(!rules.contains(&WfpRule::PermitDhcpV4));
     }
 }
