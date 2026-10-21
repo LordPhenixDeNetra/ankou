@@ -11,12 +11,10 @@ fake = []
 
 [dependencies]
 ankou-proto.workspace = true
-thiserror.workspace = true
-tracing = "0.1"
-
-[target.'cfg(any(target_os = "linux", windows))'.dependencies]
 defguard_wireguard_rs.workspace = true
 ipnet.workspace = true
+thiserror.workspace = true
+tracing = "0.1"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 netdev.workspace = true

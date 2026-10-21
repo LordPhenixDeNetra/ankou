@@ -108,6 +108,14 @@ fn invalid_config_is_reported() {
     assert!(stderr(&a).contains("Configuration invalide"));
 }
 
+/// Commande de démarrage du service que le message d'erreur cite (Unix).
+#[cfg(unix)]
+const START_HINT: &str = if cfg!(target_os = "macos") {
+    "launchctl bootstrap system"
+} else {
+    "systemctl enable --now ankoud"
+};
+
 /// `ankou-cli` avec un socket inexistant : aucun service ne répond.
 fn cli_without_daemon(dir: &Path) -> Command {
     let mut c = cli();
@@ -141,11 +149,7 @@ fn connect_without_daemon_says_start_it() {
         .arg(&path)
         .assert()
         .code(1);
-    assert!(
-        stderr(&a).contains("systemctl enable --now ankoud"),
-        "{}",
-        stderr(&a)
-    );
+    assert!(stderr(&a).contains(START_HINT), "{}", stderr(&a));
 }
 
 #[test]
@@ -239,9 +243,5 @@ fn fastest_uses_cached_servers_when_api_unreachable() {
         .args(["connect", "--lang", "en", "--fastest"])
         .assert()
         .code(1);
-    assert!(
-        stderr(&a).contains("systemctl enable --now ankoud"),
-        "{}",
-        stderr(&a)
-    );
+    assert!(stderr(&a).contains(START_HINT), "{}", stderr(&a));
 }

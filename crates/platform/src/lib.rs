@@ -6,6 +6,10 @@ pub mod fake;
 mod firewall;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+mod macos_firewall;
 mod probe;
 mod watch;
 #[cfg(windows)]
@@ -18,7 +22,10 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::SystemTime;
 
 pub use dns::{Dns, default_dns, resolvectl_commands};
-pub use firewall::{Firewall, FirewallPolicy, WfpRule, default_firewall, nft_ruleset, wfp_rules};
+pub use firewall::{
+    Firewall, FirewallPolicy, PF_ANCHOR, WfpRule, default_firewall, nft_ruleset, pf_ruleset,
+    wfp_rules,
+};
 pub use probe::{Prober, default_prober};
 pub use watch::{SystemWatch, default_watch, describe_route, parse_default_route, physical_route};
 #[cfg(windows)]
@@ -28,8 +35,15 @@ pub use windows::{WIREGUARD_DLL, dll_present};
 #[cfg(any(target_os = "linux", windows))]
 pub(crate) const PROBE_PREFIX: &str = "ankoup";
 
-/// Nom de l'interface WireGuard du client.
+/// Mesures sous macOS : `utun<PROBE_BASE + n>` (seuls les noms `utun<n>` sont admis).
+#[cfg(target_os = "macos")]
+pub(crate) const PROBE_BASE: usize = 110;
+
+/// Nom de l'interface WireGuard du client ; macOS n'admet que `utun<n>` (ADR 0010).
+#[cfg(not(target_os = "macos"))]
 pub const INTERFACE: &str = "ankou0";
+#[cfg(target_os = "macos")]
+pub const INTERFACE: &str = "utun100";
 
 pub trait Tunnel {
     /// Monte le tunnel ; supprime d'abord une interface restée d'une exécution précédente.
@@ -101,27 +115,8 @@ pub fn default_tunnel() -> Box<dyn Tunnel + Send> {
     {
         Box::new(windows::WindowsTunnel::new(INTERFACE))
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
     {
-        Box::new(Unsupported)
-    }
-}
-
-/// macOS : moteur à l'étape 5b.
-#[cfg(not(any(target_os = "linux", windows)))]
-struct Unsupported;
-
-#[cfg(not(any(target_os = "linux", windows)))]
-impl Tunnel for Unsupported {
-    fn up(&mut self, _cfg: &TunnelConfig) -> Result<(), PlatformError> {
-        Err(PlatformError::Unavailable(
-            "moteur macOS prévu à l'étape 5b".into(),
-        ))
-    }
-    fn down(&mut self) -> Result<(), PlatformError> {
-        Ok(())
-    }
-    fn stats(&self) -> Result<TunnelStats, PlatformError> {
-        Ok(TunnelStats::default())
+        Box::new(macos::MacTunnel::new(INTERFACE))
     }
 }

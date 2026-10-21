@@ -22,10 +22,13 @@ struct Cli {
     service: bool,
 }
 
-/// Dossier d'état par défaut : `/var/lib/ankou`, `C:\ProgramData\aNkou` sous Windows.
+/// Dossier d'état par défaut : `/var/lib/ankou`, `C:\ProgramData\aNkou` sous Windows,
+/// `/Library/Application Support/aNkou` sous macOS.
 fn default_state_dir() -> PathBuf {
     if cfg!(windows) {
         PathBuf::from(r"C:\ProgramData\aNkou")
+    } else if cfg!(target_os = "macos") {
+        PathBuf::from("/Library/Application Support/aNkou")
     } else {
         PathBuf::from("/var/lib/ankou")
     }
@@ -56,6 +59,25 @@ fn icacls_calls(dir: &std::path::Path) -> [Vec<String>; 2] {
 }
 
 /// Crée le dossier d'état et le verrouille (Windows) ; refuse de démarrer sinon.
+/// macOS (launchd ne crée aucun dossier) : dossier d'état réservé à root ; dossier du
+/// socket `root:staff` 0750, dont le socket hérite du groupe : tout compte du Mac peut
+/// piloter le VPN (ADR 0010).
+#[cfg(target_os = "macos")]
+fn prepare_dirs(cli: &Cli) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    const STAFF: u32 = 20;
+    std::fs::create_dir_all(&cli.state_dir)?;
+    std::fs::set_permissions(&cli.state_dir, std::fs::Permissions::from_mode(0o700))?;
+    if let Some(dir) = cli.socket.parent()
+        && !dir.exists()
+    {
+        std::fs::create_dir_all(dir)?;
+        std::os::unix::fs::chown(dir, None, Some(STAFF))?;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o750))?;
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 fn secure_state_dir(dir: &std::path::Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dir)?;
@@ -86,6 +108,8 @@ fn main() -> anyhow::Result<()> {
             std::env::set_current_dir(dir)?;
         }
     }
+    #[cfg(target_os = "macos")]
+    prepare_dirs(&cli)?;
     let _log = lpdnsoft_log::init(lpdnsoft_log::LogConfig {
         app_name: "ankoud",
         dir: cfg!(windows).then(|| cli.state_dir.join("logs")),
@@ -246,6 +270,8 @@ mod tests {
     fn default_state_dir_per_os() {
         let expected = if cfg!(windows) {
             r"C:\ProgramData\aNkou"
+        } else if cfg!(target_os = "macos") {
+            "/Library/Application Support/aNkou"
         } else {
             "/var/lib/ankou"
         };

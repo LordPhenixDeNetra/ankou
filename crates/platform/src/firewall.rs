@@ -109,23 +109,38 @@ pub fn wfp_rules(policy: &FirewallPolicy) -> Vec<WfpRule> {
     rules
 }
 
-/// macOS : pare-feu à l'étape 5b.
-#[cfg(not(any(target_os = "linux", windows)))]
-struct NoFirewall;
+/// Ancre `pf` d'aNkou (macOS), évaluée par la règle `anchor "com.apple/*"` du `pf.conf`
+/// d'Apple : rien à modifier dans la configuration du système (ADR 0010).
+pub const PF_ANCHOR: &str = "com.apple/ankou";
 
-#[cfg(not(any(target_os = "linux", windows)))]
-impl Firewall for NoFirewall {
-    fn apply(&mut self, _policy: &FirewallPolicy) -> Result<(), PlatformError> {
-        Err(PlatformError::Unavailable(
-            "pare-feu macOS prévu à l'étape 5b".into(),
-        ))
+/// Règles pour `pfctl -a com.apple/ankou -f -`, mêmes effets que `nft_ruleset`. `quick` :
+/// la première règle qui correspond décide. `no state` : rien ne dépend de l'état des
+/// connexions, et le trafic du tunnel ne s'arrête pas quand les règles sont remplacées.
+pub fn pf_ruleset(policy: &FirewallPolicy) -> String {
+    let mut s = String::from("pass out quick on lo0 all no state\n");
+    let _ = writeln!(s, "pass out quick on {} all no state", policy.interface);
+    for ep in &policy.endpoints {
+        let family = if ep.is_ipv4() { "inet" } else { "inet6" };
+        let _ = writeln!(
+            s,
+            "pass out quick {family} proto udp to {} port {} no state",
+            ep.ip(),
+            ep.port()
+        );
     }
-    fn clear(&mut self) -> Result<(), PlatformError> {
-        Ok(())
+    if policy.endpoints.iter().any(SocketAddr::is_ipv6) {
+        s.push_str(
+            "pass out quick inet6 proto icmp6 icmp6-type { neighbrsol, neighbradv, routersol } no state\n",
+        );
     }
-    fn is_active(&self) -> bool {
-        false
+    if policy.kill_switch {
+        s.push_str("pass out quick inet proto udp from any port 68 to any port 67 no state\n");
     }
+    s.push_str("block drop out quick inet6 all\n");
+    if policy.kill_switch {
+        s.push_str("block drop out quick inet all\n");
+    }
+    s
 }
 
 #[cfg(target_os = "linux")]
@@ -192,9 +207,9 @@ pub fn default_firewall() -> Box<dyn Firewall> {
     {
         Box::new(crate::windows_firewall::WfpFirewall)
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
     {
-        Box::new(NoFirewall)
+        Box::new(crate::macos_firewall::PfFirewall::default())
     }
 }
 
@@ -234,5 +249,38 @@ mod wfp_tests {
         assert!(rules.contains(&WfpRule::BlockAllV6));
         assert!(!rules.contains(&WfpRule::BlockAllV4));
         assert!(!rules.contains(&WfpRule::PermitDhcpV4));
+    }
+}
+
+#[cfg(test)]
+mod pf_tests {
+    use super::*;
+
+    #[test]
+    fn pf_ruleset_covers_policy() {
+        let policy = FirewallPolicy {
+            kill_switch: true,
+            interface: "utun100".into(),
+            endpoints: vec!["1.2.3.4:51820".parse().unwrap()],
+        };
+        assert_eq!(
+            pf_ruleset(&policy),
+            "pass out quick on lo0 all no state\n\
+             pass out quick on utun100 all no state\n\
+             pass out quick inet proto udp to 1.2.3.4 port 51820 no state\n\
+             pass out quick inet proto udp from any port 68 to any port 67 no state\n\
+             block drop out quick inet6 all\n\
+             block drop out quick inet all\n"
+        );
+        let rules = pf_ruleset(&FirewallPolicy {
+            kill_switch: false,
+            interface: "utun100".into(),
+            endpoints: vec!["[2001:db8::1]:51820".parse().unwrap()],
+        });
+        assert!(rules.contains("inet6 proto udp to 2001:db8::1 port 51820"));
+        assert!(rules.contains("neighbrsol"));
+        assert!(rules.contains("block drop out quick inet6 all"));
+        assert!(!rules.contains("block drop out quick inet all"));
+        assert!(!rules.contains("port 67"));
     }
 }
