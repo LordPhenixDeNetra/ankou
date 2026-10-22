@@ -211,8 +211,13 @@ jobs:
           sudo launchctl print system/fr.lpdnsoft.ankoud | grep -q "state = running"
           sleep 2
           /usr/local/bin/ankou-cli status --lang en | grep Disconnected
-          # Plantage : launchd relance le service.
-          sudo pkill -KILL -x ankoud && sleep 7
+          # Plantage : launchd relance le service, jamais moins de 10 s après son lancement
+          # précédent (ThrottleInterval) ; 30 s au plus.
+          sudo pkill -KILL -x ankoud
+          for _ in $(seq 1 30); do
+            if /usr/local/bin/ankou-cli status --lang en 2>/dev/null | grep -q Disconnected; then break; fi
+            sleep 1
+          done
           /usr/local/bin/ankou-cli status --lang en | grep Disconnected
           sudo /usr/local/bin/ankoud --unblock
       - uses: actions/upload-artifact@v4
