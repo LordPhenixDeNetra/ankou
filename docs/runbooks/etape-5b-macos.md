@@ -69,7 +69,7 @@ L'étape 5b est terminée quand ces tests passent.
 
 - **« Le service ankoud ne tourne pas »** : `sudo launchctl bootstrap system /Library/LaunchDaemons/fr.lpdnsoft.ankoud.plist`. Journal : `/Library/Logs/ankoud.log`.
 - **Plus d'Internet** : c'est le kill switch qui bloque. Faites `ankou-cli disconnect`, ou bien `ankou-cli killswitch off` pour rester connecté sans blocage.
-- **Dernier recours** (service supprimé, règles restées) :
+- **Dernier recours** (service arrêté ou qui ne démarre plus, règles restées) : `sudo ankoud --unblock` retire les règles et rend le DNS d'origine. À la main :
   ```sh
   sudo pfctl -a com.apple/ankou -s rules   # voir les règles d'aNkou
   sudo pfctl -a com.apple/ankou -F rules   # les retirer

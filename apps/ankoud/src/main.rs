@@ -16,6 +16,10 @@ struct Cli {
     /// Saved configuration and settings
     #[arg(long, default_value_os_t = default_state_dir())]
     state_dir: PathBuf,
+    /// Remove the kill switch rules left behind, then exit (administrator or root): the way
+    /// out when the service no longer starts
+    #[arg(long)]
+    unblock: bool,
     /// Run under the Windows service manager (set by the service's command line)
     #[cfg(windows)]
     #[arg(long)]
@@ -34,28 +38,26 @@ fn default_state_dir() -> PathBuf {
     }
 }
 
-/// Appels à `icacls` qui réservent le dossier d'état à SYSTEM et aux Administrateurs :
-/// droits (héritage coupé), puis propriétaire, chacun appliqué à tout le contenu. Deux
-/// appels : `icacls` refuse `/grant` et `/setowner` dans la même commande. `profile.toml`
-/// contient la clé privée, et `C:\ProgramData` est lisible par tous les utilisateurs.
+/// Appels à `icacls` qui réservent le dossier d'état à SYSTEM et aux Administrateurs.
+/// `profile.toml` contient la clé privée, et `C:\ProgramData` est lisible par tous.
+/// 1. Le dossier seul : héritage coupé, droits posés avec `(OI)(CI)` pour que tout fichier
+///    créé dedans en hérite. Pas de `/T` : appliquées à un fichier, ces règles
+///    d'héritage ne valent rien, et la 1.0.0 laissait ainsi des fichiers sans aucun droit.
+/// 2. Le contenu : droits hérités rétablis (`/reset`), ce qui répare ces fichiers ;
+///    `/C` continue après une erreur.
 #[cfg_attr(not(windows), allow(dead_code))] // testé partout, utilisé sous Windows
 fn icacls_calls(dir: &std::path::Path) -> [Vec<String>; 2] {
     let dir = dir.display().to_string();
-    let call = |rest: &[&str]| {
-        std::iter::once(dir.clone())
-            .chain(rest.iter().map(|s| (*s).to_owned()))
-            .collect()
-    };
-    [
-        call(&[
-            "/inheritance:r",
-            "/grant:r",
-            "*S-1-5-18:(OI)(CI)F",
-            "*S-1-5-32-544:(OI)(CI)F",
-            "/T",
-        ]),
-        call(&["/setowner", "*S-1-5-32-544", "/T"]),
-    ]
+    let lock = [
+        dir.as_str(),
+        "/inheritance:r",
+        "/grant:r",
+        "*S-1-5-18:(OI)(CI)F",
+        "*S-1-5-32-544:(OI)(CI)F",
+    ];
+    let content = format!("{dir}\\*");
+    let reset = [content.as_str(), "/reset", "/T", "/C", "/Q"];
+    [lock, reset].map(|a| a.iter().map(|s| (*s).to_owned()).collect())
 }
 
 /// Crée le dossier d'état et le verrouille (Windows) ; refuse de démarrer sinon.
@@ -78,20 +80,22 @@ fn prepare_dirs(cli: &Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Le dossier verrouillé, sinon le service refuse de démarrer ; la réparation du contenu,
+/// elle, ne bloque jamais (un dossier neuf est vide, et `icacls` le signale en erreur).
 #[cfg(windows)]
 fn secure_state_dir(dir: &std::path::Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dir)?;
-    for args in icacls_calls(dir) {
-        let out = std::process::Command::new("icacls").args(&args).output()?;
-        if !out.status.success() {
-            anyhow::bail!(
-                "droits du dossier {} non appliqués : {} {}",
-                dir.display(),
-                String::from_utf8_lossy(&out.stdout).trim(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            );
-        }
+    let [lock, reset] = icacls_calls(dir);
+    let out = std::process::Command::new("icacls").args(&lock).output()?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "droits du dossier {} non appliqués : {} {}",
+            dir.display(),
+            String::from_utf8_lossy(&out.stdout).trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
     }
+    let _ = std::process::Command::new("icacls").args(&reset).output();
     Ok(())
 }
 
@@ -99,15 +103,25 @@ fn main() -> anyhow::Result<()> {
     let mut cli = Cli::parse();
     // Chemins absolus avant tout changement de dossier courant.
     cli.state_dir = std::path::absolute(&cli.state_dir)?;
-    // Windows : dossier d'état réservé ; journaux dedans (un service n'a pas de console) ;
-    // dossier courant = celui de l'exécutable, où `wireguard.dll` est cherchée (ADR 0009).
+    // Windows : dossier courant = celui de l'exécutable, où `wireguard.dll` est cherchée
+    // (ADR 0009).
     #[cfg(windows)]
-    {
-        secure_state_dir(&cli.state_dir)?;
-        if let Some(dir) = std::env::current_exe()?.parent() {
-            std::env::set_current_dir(dir)?;
-        }
+    if let Some(dir) = std::env::current_exe()?.parent() {
+        std::env::set_current_dir(dir)?;
     }
+    // Sortie de secours, avant tout ce qui pourrait échouer : pare-feu d'abord, puis DNS.
+    if cli.unblock {
+        ankou_platform::default_firewall().clear()?;
+        anyhow::ensure!(
+            !ankou_platform::default_firewall().is_active(),
+            "règles du kill switch toujours présentes"
+        );
+        ankou_platform::default_dns().revert(ankou_platform::INTERFACE);
+        return Ok(());
+    }
+    // Windows : dossier d'état réservé ; journaux dedans (un service n'a pas de console).
+    #[cfg(windows)]
+    secure_state_dir(&cli.state_dir)?;
     #[cfg(target_os = "macos")]
     prepare_dirs(&cli)?;
     let _log = lpdnsoft_log::init(lpdnsoft_log::LogConfig {
@@ -248,21 +262,22 @@ mod tests {
 
     #[test]
     fn state_dir_is_locked_to_system_and_admins() {
-        let [grant, owner] = icacls_calls(Path::new(r"C:\ProgramData\aNkou"));
+        let [lock, reset] = icacls_calls(Path::new(r"C:\ProgramData\aNkou"));
         assert_eq!(
-            grant,
+            lock,
             [
                 r"C:\ProgramData\aNkou",
                 "/inheritance:r",
                 "/grant:r",
                 "*S-1-5-18:(OI)(CI)F",
                 "*S-1-5-32-544:(OI)(CI)F",
-                "/T",
             ]
         );
+        // Jamais `/T` sur les règles d'héritage : les fichiers en sortiraient sans droits.
+        assert!(!lock.contains(&"/T".to_owned()));
         assert_eq!(
-            owner,
-            [r"C:\ProgramData\aNkou", "/setowner", "*S-1-5-32-544", "/T"]
+            reset,
+            [r"C:\ProgramData\aNkou\*", "/reset", "/T", "/C", "/Q"]
         );
     }
 

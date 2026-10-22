@@ -186,7 +186,7 @@ checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
 
 [[package]]
 name = "ankou"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-proto",
  "ankou-ui-egui",
@@ -197,7 +197,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-admin"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-api",
  "ankou-proto",
@@ -216,7 +216,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-api"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-proto",
  "ankou-server-domain",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-api-client"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-api",
  "ankou-proto",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-api-client",
  "ankou-daemon",
@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-proto",
  "proptest",
@@ -303,7 +303,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-daemon"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-core",
  "ankou-ipc",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-ipc"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-ipc",
  "ankou-proto",
@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-node"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-node-core",
  "anyhow",
@@ -349,7 +349,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-node-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-api",
  "ankou-core",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-platform"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-platform",
  "ankou-proto",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-proto"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "base64 0.23.1",
  "ipnet",
@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-server-domain"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ipnet",
  "sha2",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-server-store"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-proto",
  "ankou-server-domain",
@@ -435,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "ankou-ui-egui"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-api-client",
  "ankou-daemon",
@@ -461,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "ankoud"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "ankou-daemon",
  "ankou-ipc",
@@ -7902,7 +7902,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "lpdnsoft-i18n",
