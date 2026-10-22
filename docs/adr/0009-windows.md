@@ -56,3 +56,10 @@ L'étape 5 porte les fonctions 1 à 8 sur Windows et macOS (§10). Pour Windows,
 - Le job `e2e-windows` vérifie, sur une vraie machine Windows : le pare-feu WFP (blocage puis retour, persistance), et le service par le pipe avec création puis retrait de la carte `ankou0`.
 - Un handshake réel n'y est pas possible faute de serveur WireGuard : le runbook le couvre.
 - Les filtres persistants survivent même à la désinstallation sauvage du service. Le runbook donne la commande de secours.
+
+## Révision (1.0.1)
+
+- **Droits du dossier d'état.** La 1.0.0 posait les droits avec `icacls … /T` à chaque démarrage. Appliquées à un fichier, les règles d'héritage `(OI)(CI)` ne valent rien : après `/inheritance:r`, les fichiers restaient sans aucun droit, puis `/setowner` échouait, et le service s'arrêtait avant même de se signaler à Windows. Après un plantage, il ne redémarrait donc plus, et les filtres du kill switch coupaient Internet pour de bon. Désormais, les droits sont posés sur le dossier seul (les fichiers en héritent) ; le contenu est remis à l'héritage (`/reset /T /C`), sans jamais bloquer le démarrage.
+- **Sortie de secours** : `ankoud --unblock` (administrateur) retire les filtres et la règle DNS sans passer par le service. Le message « service absent » de la CLI et de l'application la cite.
+- **Régression couverte** par le workflow Release : redémarrage du service, `taskkill`, relance, puis `--unblock`.
+

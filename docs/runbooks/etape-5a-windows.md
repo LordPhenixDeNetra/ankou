@@ -91,13 +91,19 @@ L'étape 5a est terminée quand ces tests passent.
 - **« WireGuard n'est pas disponible (wireguard.dll introuvable…) »** : vérifiez `C:\Program Files\aNkou\resources-windows\binaries\wireguard-amd64.dll` (section 2).
 - **« Le service ankoud ne tourne pas »** : `sc.exe start ankoud` (administrateur). Journaux : `C:\ProgramData\aNkou\logs`.
 - **Plus d'Internet** : c'est le kill switch qui bloque. Faites `ankou-cli disconnect` ; ou bien `ankou-cli killswitch off` pour rester connecté sans blocage.
-- **Dernier recours** (service supprimé, filtres restés), en administrateur :
+- **Dernier recours** (service arrêté ou qui ne démarre plus, filtres restés), en administrateur :
   ```powershell
-  sc.exe stop ankoud
-  & "C:\Program Files\aNkou\ankoud.exe" --state-dir $env:TEMP\ankou-reset
+  ankoud --unblock
   ```
-  Sans profil dans ce dossier vide, `ankoud` retire les filtres restés dès son démarrage. Faites ensuite Ctrl+C.
-  Pour voir les filtres : `netsh wfp show filters`, qui écrit `filters.xml` (fournisseur « aNkou »).
+  Retire les filtres du kill switch et la règle DNS, sans passer par le service. Pour voir les filtres : `netsh wfp show filters`, qui écrit `filters.xml` (fournisseur « aNkou »).
+- **Le service ne démarre plus après une mise à jour depuis la 1.0.0** (journal système : « n'a pas répondu assez vite ») : la 1.0.0 abîmait les droits des fichiers de `C:\ProgramData\aNkou` au redémarrage du service. La 1.0.1 les répare à son démarrage. Si elle n'y parvient pas, en administrateur, effacez le dossier (le PC devra être de nouveau enrôlé) :
+  ```powershell
+  ankoud --unblock
+  takeown /F C:\ProgramData\aNkou /R /A
+  icacls C:\ProgramData\aNkou /grant "*S-1-5-32-544:(OI)(CI)F" /T /C
+  Remove-Item -Recurse -Force C:\ProgramData\aNkou
+  Start-Service ankoud
+  ```
 - **Désinstaller** :
   ```powershell
   ankou-cli disconnect

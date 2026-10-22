@@ -68,6 +68,12 @@ jobs:
           systemctl is-active ankoud
           sleep 2
           sudo ankou-cli status --lang en | grep Disconnected
+          # Redémarrage et plantage : le service revient (régression 1.0.0 sous Windows).
+          sudo systemctl restart ankoud && sleep 2
+          sudo ankou-cli status --lang en | grep Disconnected
+          sudo pkill -KILL -x ankoud && sleep 7
+          sudo ankou-cli status --lang en | grep Disconnected
+          sudo ankoud --unblock
           sudo apt-get remove -y ankou
           if systemctl is-active ankoud; then echo "service resté actif"; exit 1; fi
       - name: Essai du .rpm (Fedora)
@@ -133,9 +139,32 @@ jobs:
           $msi = Resolve-Path "dist\ankou-$env:V-windows-x86_64.msi"
           $p = Start-Process msiexec -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', 'install.log' -Wait -PassThru
           if ($p.ExitCode) { Get-Content install.log -Tail 50; throw "installation : $($p.ExitCode)" }
-          if ((Get-Service ankoud).Status -ne 'Running') { throw "service ankoud arrêté" }
-          $out = (& "C:\Program Files\aNkou\ankou-cli.exe" status --lang en) -join "`n"
-          if ($out -notmatch 'Disconnected') { throw "status : $out" }
+          $cli = "C:\Program Files\aNkou\ankou-cli.exe"
+          # Le service répond-il (20 s au plus) ?
+          function Wait-Ankoud($etape) {
+            foreach ($i in 1..20) {
+              $out = (& $cli status --lang en 2>&1) -join "`n"
+              if ($out -match 'Disconnected') { return }
+              Start-Sleep 1
+            }
+            Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'} -MaxEvents 10 | Format-List TimeCreated, Message
+            throw "$etape : service ankoud muet ($out)"
+          }
+          Wait-Ankoud "installation"
+          # Régression 1.0.0 : après un premier démarrage (fichiers dans le dossier d'état),
+          # le service ne redémarrait plus. Redémarrage normal, puis plantage (taskkill).
+          Restart-Service ankoud
+          Wait-Ankoud "redémarrage"
+          taskkill /F /IM ankoud.exe
+          Start-Sleep 7
+          Wait-Ankoud "relance après plantage"
+          Get-Content C:\ProgramData\aNkou\logs\*.log -Tail 1 | Out-Null
+          # Sortie de secours, utilisable même service arrêté.
+          Stop-Service ankoud
+          & "C:\Program Files\aNkou\ankoud.exe" --unblock
+          if ($LASTEXITCODE) { throw "ankoud --unblock : $LASTEXITCODE" }
+          Start-Service ankoud
+          Wait-Ankoud "après --unblock"
           $p = Start-Process msiexec -ArgumentList '/x', "`"$msi`"", '/qn' -Wait -PassThru
           if ($p.ExitCode) { throw "désinstallation : $($p.ExitCode)" }
           if (Get-Service ankoud -ErrorAction SilentlyContinue) { throw "service ankoud resté" }
@@ -182,6 +211,15 @@ jobs:
           sudo launchctl print system/fr.lpdnsoft.ankoud | grep -q "state = running"
           sleep 2
           /usr/local/bin/ankou-cli status --lang en | grep Disconnected
+          # Plantage : launchd relance le service, jamais moins de 10 s après son lancement
+          # précédent (ThrottleInterval) ; 30 s au plus.
+          sudo pkill -KILL -x ankoud
+          for _ in $(seq 1 30); do
+            if /usr/local/bin/ankou-cli status --lang en 2>/dev/null | grep -q Disconnected; then break; fi
+            sleep 1
+          done
+          /usr/local/bin/ankou-cli status --lang en | grep Disconnected
+          sudo /usr/local/bin/ankoud --unblock
       - uses: actions/upload-artifact@v4
         with:
           name: macos

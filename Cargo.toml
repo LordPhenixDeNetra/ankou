@@ -3,7 +3,7 @@ members = ["crates/*", "apps/*", "xtask"]
 resolver = "3"
 
 [workspace.package]
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
@@ -19,19 +19,19 @@ dbg_macro = "deny"
 todo = "deny"
 
 [workspace.dependencies]
-ankou-core = { path = "crates/core", version = "1.0.0" }
-ankou-platform = { path = "crates/platform", version = "1.0.0" }
-ankou-proto = { path = "crates/proto", version = "1.0.0" }
-ankou-server-domain = { path = "crates/server-domain", version = "1.0.0" }
-ankou-server-store = { path = "crates/server-store", version = "1.0.0" }
-ankou-api = { path = "apps/ankou-api", version = "1.0.0" }
-ankou-api-client = { path = "crates/api-client", version = "1.0.0" }
-ankou-node-core = { path = "crates/node", version = "1.0.0" }
-ankou-ipc = { path = "crates/ipc", version = "1.0.0" }
-ankou-daemon = { path = "crates/daemon", version = "1.0.0" }
-ankou-ui-egui = { path = "crates/ui-egui", version = "1.0.0" }
-ankou-node = { path = "apps/ankou-node", version = "1.0.0" }
-ankou-admin = { path = "apps/ankou-admin", version = "1.0.0" }
+ankou-core = { path = "crates/core", version = "1.0.1" }
+ankou-platform = { path = "crates/platform", version = "1.0.1" }
+ankou-proto = { path = "crates/proto", version = "1.0.1" }
+ankou-server-domain = { path = "crates/server-domain", version = "1.0.1" }
+ankou-server-store = { path = "crates/server-store", version = "1.0.1" }
+ankou-api = { path = "apps/ankou-api", version = "1.0.1" }
+ankou-api-client = { path = "crates/api-client", version = "1.0.1" }
+ankou-node-core = { path = "crates/node", version = "1.0.1" }
+ankou-ipc = { path = "crates/ipc", version = "1.0.1" }
+ankou-daemon = { path = "crates/daemon", version = "1.0.1" }
+ankou-ui-egui = { path = "crates/ui-egui", version = "1.0.1" }
+ankou-node = { path = "apps/ankou-node", version = "1.0.1" }
+ankou-admin = { path = "apps/ankou-admin", version = "1.0.1" }
 # Dépôt frère, cloné à côté de celui-ci (voir ADR 0001).
 lpdnsoft-atomic = { path = "../lpdnsoft-libs/crates/atomic", version = "0.1.0" }
 lpdnsoft-settings = { path = "../lpdnsoft-libs/crates/settings", version = "0.1.0" }
